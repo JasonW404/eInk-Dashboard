@@ -1,6 +1,6 @@
 [project]
 name = "inkpi"
-version = "0.2.1"
+version = "0.2.2"
 description = "Modular Raspberry Pi e-ink dashboard appliance"
 readme = "README.md"
 requires-python = ">=3.12"

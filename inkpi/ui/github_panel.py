@@ -20,7 +20,7 @@ from inkpi.ui.constants import (
     MARGIN,
     TITLE_LINE_HEIGHT,
 )
-from inkpi.ui.drawing import _load_font, draw_patterned_rect, draw_rect, draw_text
+from inkpi.ui.drawing import PATTERN_SPACING, _load_font, draw_patterned_rect, draw_rect, draw_text
 
 if TYPE_CHECKING:
     from inkpi.domain.models import GitHubMonthlyStats
@@ -243,7 +243,7 @@ class GitHubPanel:
             cell_box = (cell_x, cell_y, cell_x + cell_size, cell_y + cell_size)
 
             if current_date == today:
-                self._draw_today_star(image, cell_x, cell_y, cell_size)
+                self._draw_today_cell(image, cell_x, cell_y, cell_size, density)
             elif density is None:
                 draw_rect(image, cell_box, fill=GRAY_WHITE, outline=GRAY_MID, width=1)
             else:
@@ -260,18 +260,31 @@ class GitHubPanel:
         return "high"
 
     @staticmethod
-    def _draw_today_star(image: Image.Image, x: int, y: int, size: int) -> None:
+    def _draw_today_cell(image: Image.Image, x: int, y: int, size: int, density: str | None) -> None:
         draw = ImageDraw.Draw(image)
+
+        if density is not None:
+            spacing = PATTERN_SPACING.get(density)
+            if spacing is not None:
+                x0, y0, x1, y1 = x, y, x + size, y + size
+                ly = y0
+                while ly < y1:
+                    draw.line([(x0, ly), (x1 - 1, ly)], fill=GRAY_BLACK, width=1)
+                    ly += spacing
+
         center_x = x + size / 2
         center_y = y + size / 2
-        outer = size / 2 - 1
+        outer = size / 2 - 3
         inner = outer * 0.45
         points: list[tuple[float, float]] = []
         for index in range(10):
             radius = outer if index % 2 == 0 else inner
             angle = -pi / 2 + index * pi / 5
             points.append((center_x + cos(angle) * radius, center_y + sin(angle) * radius))
-        draw.polygon(points, fill=GRAY_BLACK, outline=GRAY_MID)
+
+        draw.polygon(points, fill=GRAY_WHITE)
+        draw.polygon(points, outline=GRAY_BLACK)
+        draw.rectangle((x, y, x + size, y + size), outline=GRAY_MID, width=1)
 
     def _fit_label_text(
         self,
