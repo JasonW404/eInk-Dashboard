@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 
 FontWeight = Literal["regular", "medium", "semibold", "bold"]
+TextAlign = Literal["left", "center", "right"]
 
 
 _FONT_DIR = files("inkpi").joinpath("fonts")
@@ -81,6 +82,32 @@ def draw_text(
     draw = ImageDraw.Draw(image)
     font = _load_font(font_size, font_weight)
     draw.text(xy, text, fill=fill, font=font)
+
+
+def draw_text_line(
+    image: Image.Image,
+    xy: tuple[int, int],
+    text: str,
+    line_height: int,
+    fill: int = GRAY_BLACK,
+    font_size: int = FONT_SIZE_NORMAL,
+    font_weight: FontWeight = "regular",
+    width: int | None = None,
+    align: TextAlign = "left",
+) -> None:
+    """Draw text inside a fixed line box with the glyph bottom aligned."""
+
+    draw = ImageDraw.Draw(image)
+    font = _load_font(font_size, font_weight)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    x, y = xy
+    if width is not None:
+        if align == "center":
+            x += (width - text_width) // 2
+        elif align == "right":
+            x += width - text_width
+    draw.text((x - bbox[0], y + line_height - bbox[3]), text, fill=fill, font=font)
 
 
 def draw_rect(

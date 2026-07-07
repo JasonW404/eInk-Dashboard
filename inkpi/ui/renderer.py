@@ -22,7 +22,7 @@ from inkpi.ui.constants import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
-from inkpi.ui.drawing import _load_emoji_font, _load_font, draw_line, draw_rect, draw_text, truncate_text
+from inkpi.ui.drawing import _load_emoji_font, _load_font, draw_line, draw_rect, draw_text, draw_text_line, truncate_text
 from inkpi.ui.github_panel import GitHubPanel
 
 if TYPE_CHECKING:
@@ -45,17 +45,17 @@ class DashboardRenderer:
 
         self._separator_width = 1
         self._status_x_offset = MARGIN
-        self._status_y = 8
+        self._status_y = 5
         self._status_height = 41
-        self._status_github_separator_y = 52
-        self._github_y = 59
+        self._status_github_separator_y = 49
+        self._github_y = 54
         self._github_height = 176
-        self._github_codex_separator_y = 241
-        self._codex_y = 248
+        self._github_codex_separator_y = 234
+        self._codex_y = 239
         self._codex_height = 118
-        self._codex_bottom_separator_y = 372
-        self._bottom_y = 379
-        self._bottom_height = 96
+        self._codex_bottom_separator_y = 361
+        self._bottom_y = 366
+        self._bottom_height = 110
 
         self._github = GitHubPanel(
             self._content_width,
@@ -150,7 +150,15 @@ class DashboardRenderer:
         weather: WeatherInfo,
     ) -> None:
         date_text = date_time.now.strftime("%a %b %d %Y").upper()
-        draw_text(image, (x, y + 3), date_text, fill=GRAY_BLACK, font_size=FONT_SIZE_NORMAL, font_weight="semibold")
+        draw_text_line(
+            image,
+            (x, y + 3),
+            date_text,
+            line_height=25,
+            fill=GRAY_BLACK,
+            font_size=FONT_SIZE_NORMAL,
+            font_weight="semibold",
+        )
 
         self._render_weather_component(
             image,
@@ -160,10 +168,11 @@ class DashboardRenderer:
         )
 
         version_text = f"InkPi v{_inkpi_version()}"
-        draw_text(
+        draw_text_line(
             image,
             (x + 609, y + 3),
             version_text,
+            line_height=25,
             fill=GRAY_LIGHT,
             font_size=FONT_SIZE_NORMAL,
         )
@@ -179,30 +188,65 @@ class DashboardRenderer:
         network: NetworkInfo,
     ) -> None:
         system_x = x + MARGIN
-        network_x = x + 401
-        content_y = y + 8
 
-        draw_text(image, (system_x, content_y), "SYSTEM PRESSURE", fill=GRAY_BLACK, font_size=FONT_SIZE_LARGE, font_weight="bold")
-        metric_y = content_y + 30
-        self._draw_fixed_percent(image, system_x, metric_y, "CPU", system.cpu_average_percent)
-        self._draw_fixed_percent(image, system_x + 125, metric_y, "RAM", system.memory_percent)
-        self._draw_fixed_percent(image, system_x + 250, metric_y, "LOAD", system.global_load_percent)
+        draw_text_line(
+            image,
+            (system_x, y + 8),
+            "SYSTEM",
+            line_height=30,
+            fill=GRAY_BLACK,
+            font_size=FONT_SIZE_LARGE,
+            font_weight="bold",
+        )
 
-        bar_y = content_y + 64
-        bar_width = 360
+        self._draw_fixed_percent(image, system_x, y + 50, "CPU", system.cpu_average_percent)
+        self._draw_fixed_percent(image, system_x, y + 82, "RAM", system.memory_percent)
+
+        draw = ImageDraw.Draw(image)
+        network_label = self._network_label(network)
+        ip_text = _fixed_ip(network.ip_address)
+        ip_x = x + 227
+        ip_font = _load_font(FONT_SIZE_NORMAL, font_weight="semibold")
+        ip_width = draw.textbbox((0, 0), ip_text, font=ip_font)[2]
+        draw_text_line(
+            image,
+            (x + 133, y + 50),
+            truncate_text(network_label, 12),
+            line_height=20,
+            fill=GRAY_MID,
+            font_size=FONT_SIZE_SMALL,
+        )
+        draw_text_line(
+            image,
+            (ip_x, y + 50),
+            ip_text,
+            line_height=20,
+            fill=GRAY_MID,
+            font_size=FONT_SIZE_NORMAL,
+            font_weight="semibold",
+        )
+
+        draw_text(image, (x + 133, y + 85), "Sys LOAD", fill=GRAY_MID, font_size=FONT_SIZE_SMALL)
+        value_text = f"{max(0, min(999, round(system.global_load_percent))):>3}%"
+        draw_text_line(
+            image,
+            (x + 215, y + 82),
+            value_text,
+            line_height=20,
+            fill=GRAY_BLACK,
+            font_size=FONT_SIZE_NORMAL,
+            font_weight="semibold",
+        )
+
+        bar_width = 69
+        bar_x = ip_x + ip_width - bar_width
+        bar_y = y + 83
+        bar_height = 18
         load = max(0, min(100, system.global_load_percent))
-        draw_rect(image, (system_x, bar_y, system_x + bar_width, bar_y + 12), fill=None, outline=GRAY_MID, width=1)
+        draw_rect(image, (bar_x, bar_y, bar_x + bar_width, bar_y + bar_height), fill=None, outline=GRAY_MID, width=1)
         fill_width = int(bar_width * load / 100)
         if fill_width > 0:
-            draw_rect(image, (system_x, bar_y, system_x + fill_width, bar_y + 12), fill=GRAY_BLACK)
-
-        sep_x = x + 390
-        draw_line(image, (sep_x, y + 8, sep_x, y + height - 12), fill=GRAY_LIGHT, width=1)
-
-        draw_text(image, (network_x, content_y), "NETWORK", fill=GRAY_BLACK, font_size=FONT_SIZE_LARGE, font_weight="bold")
-        network_label = self._network_label(network)
-        draw_text(image, (network_x, metric_y), truncate_text(network_label, 24), fill=GRAY_BLACK, font_size=FONT_SIZE_NORMAL)
-        draw_text(image, (network_x, metric_y + 28), _fixed_ip(network.ip_address), fill=GRAY_MID, font_size=FONT_SIZE_SMALL)
+            draw_rect(image, (bar_x, bar_y, bar_x + fill_width, bar_y + bar_height), fill=GRAY_BLACK)
 
     def _draw_fixed_percent(
         self,
@@ -217,8 +261,16 @@ class DashboardRenderer:
         value_font = _load_font(FONT_SIZE_NORMAL)
         value_width = draw.textbbox((0, 0), value_text, font=value_font)[2]
         label_width = draw.textbbox((0, 0), label, font=_load_font(FONT_SIZE_SMALL))[2]
-        draw_text(image, (x, y + 2), label, fill=GRAY_MID, font_size=FONT_SIZE_SMALL)
-        draw_text(image, (x + label_width + 10, y), value_text, fill=GRAY_BLACK, font_size=FONT_SIZE_NORMAL, font_weight="semibold")
+        draw_text_line(image, (x, y), label, line_height=20, fill=GRAY_MID, font_size=FONT_SIZE_SMALL)
+        draw_text_line(
+            image,
+            (x + label_width + 10, y),
+            value_text,
+            line_height=20,
+            fill=GRAY_BLACK,
+            font_size=FONT_SIZE_NORMAL,
+            font_weight="semibold",
+        )
 
     @staticmethod
     def _format_weather(weather: WeatherInfo) -> str:
@@ -243,7 +295,7 @@ class DashboardRenderer:
         gap = 8 if icon_size else 0
         total_width = text_width + gap + icon_size
         text_x = int(center_x - total_width / 2)
-        draw_text(image, (text_x, y), weather_text, fill=GRAY_BLACK, font_size=FONT_SIZE_NORMAL)
+        draw_text_line(image, (text_x, y), weather_text, line_height=25, fill=GRAY_BLACK, font_size=FONT_SIZE_NORMAL)
         if icon_size:
             self._draw_weather_icon(
                 image,

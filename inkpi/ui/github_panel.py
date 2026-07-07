@@ -20,7 +20,7 @@ from inkpi.ui.constants import (
     MARGIN,
     TITLE_LINE_HEIGHT,
 )
-from inkpi.ui.drawing import PATTERN_SPACING, _load_font, draw_patterned_rect, draw_rect, draw_text
+from inkpi.ui.drawing import PATTERN_SPACING, _load_font, draw_patterned_rect, draw_rect, draw_text, draw_text_line
 
 if TYPE_CHECKING:
     from inkpi.domain.models import GitHubMonthlyStats
@@ -42,10 +42,11 @@ class GitHubPanel:
         content_x = MARGIN
         y = MARGIN + 1
 
-        draw_text(
+        draw_text_line(
             image,
             (content_x, y),
             "GITHUB CONTRIBUTIONS",
+            line_height=30,
             fill=GRAY_BLACK,
             font_size=title_size,
             font_weight="bold",
@@ -59,7 +60,7 @@ class GitHubPanel:
 
         # Tunable layout coordinates, all relative to this GitHub panel.
         stats_x = content_x
-        stats_y = y + 10
+        stats_y = y + 22
         stats_width = 536
 
         calendar_width = 183
@@ -152,7 +153,15 @@ class GitHubPanel:
         label_font = _load_font(label_size, font_weight="semibold")
         label_width = draw.textbbox((0, 0), group_label, font=label_font)[2]
         label_x = x + max(0, (width - label_width) // 2)
-        draw_text(image, (int(label_x), y), group_label, fill=GRAY_BLACK, font_size=label_size, font_weight="semibold")
+        draw_text_line(
+            image,
+            (int(label_x), y),
+            group_label,
+            line_height=30,
+            fill=GRAY_BLACK,
+            font_size=label_size,
+            font_weight="semibold",
+        )
         metric_y = y + 39
         metric_gap = 8
         commits_width = 120
@@ -189,8 +198,16 @@ class GitHubPanel:
 
         value_x = x + max(0, (width - value_width) // 2)
         label_x = x + max(0, (width - label_width) // 2)
-        draw_text(image, (int(value_x), y), value_text, fill=GRAY_BLACK, font_size=font_size, font_weight="bold")
-        draw_text(image, (int(label_x), y + 32), label, fill=GRAY_MID, font_size=FONT_SIZE_SMALL)
+        draw_text_line(
+            image,
+            (int(value_x), y),
+            value_text,
+            line_height=35,
+            fill=GRAY_BLACK,
+            font_size=font_size,
+            font_weight="bold",
+        )
+        draw_text_line(image, (int(label_x), y + 32), label, line_height=20, fill=GRAY_MID, font_size=FONT_SIZE_SMALL)
         return y + 56
 
     def _render_contribution_calendar(
@@ -223,7 +240,7 @@ class GitHubPanel:
         weekdays = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
         for col, weekday in enumerate(weekdays):
             label_x = calendar_x + col * (cell_size + cell_spacing)
-            draw_text(image, (int(label_x), y), weekday, fill=GRAY_MID, font_size=FONT_SIZE_SMALL)
+            draw_text_line(image, (int(label_x), y), weekday, line_height=20, fill=GRAY_MID, font_size=FONT_SIZE_SMALL)
 
         grid_y = y + header_height + 4
 
