@@ -300,9 +300,9 @@ For display or orchestration changes, also run the local dual-service smoke test
 
 ## Raspberry Pi Deployment
 
-The deploy target is reachable via `ssh meta_pi`. The expected checkout path is `/home/meta/Documents/InkPi`.
+The deploy target is reachable via `ssh meta_pi`. The expected checkout path is `/home/meta/Workspace/InkPi`.
 
-部署目标通过 `ssh meta_pi` 访问。预期 checkout 路径为 `/home/meta/Documents/InkPi`。
+部署目标通过 `ssh meta_pi` 访问。预期 checkout 路径为 `/home/meta/Workspace/InkPi`。
 
 See the [Deployment Guide](deployment.md) for detailed steps.
 

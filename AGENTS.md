@@ -20,7 +20,7 @@ All contributors and coding agents working in this repository must follow
   font fallbacks; architecture tests enforce this policy
 - CI state: GitHub Actions runs test (macOS+Ubuntu), ruff lint, and dual-service
   smoke test on every push and PR
-- Deployment target: `meta_pi:/home/meta/Documents/InkPi`
+- Deployment target: `meta_pi:/home/meta/Workspace/InkPi`
 
 ## Non-Negotiable Boundaries
 

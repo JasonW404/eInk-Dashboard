@@ -4,10 +4,10 @@ This guide covers deploying InkPi to a Raspberry Pi 4B target device.
 
 本指南说明如何将 InkPi 部署到 Raspberry Pi 4B 目标设备。
 
-Deploy target: `meta_pi:/home/meta/Documents/InkPi`
+Deploy target: `meta_pi:/home/meta/Workspace/InkPi`
 Target hardware: Waveshare 4.26" 800x480 4-gray e-ink HAT
 
-部署目标：`meta_pi:/home/meta/Documents/InkPi`
+部署目标：`meta_pi:/home/meta/Workspace/InkPi`
 目标硬件：Waveshare 4.26" 800x480 4-gray e-ink HAT
 
 ## Prerequisites
@@ -39,7 +39,7 @@ rsync -avz --delete \
   --exclude='.git' \
   --exclude='dist/' \
   --exclude='.lgd-*' \
-  ./ meta_pi:/home/meta/Documents/InkPi/
+  ./ meta_pi:/home/meta/Workspace/InkPi/
 ```
 
 !!! warning "rsync Exclusions"
@@ -51,7 +51,7 @@ rsync -avz --delete \
 
 ```bash
 ssh meta_pi
-cd ~/Documents/InkPi
+cd ~/Workspace/InkPi
 uv sync --extra rpi
 ```
 

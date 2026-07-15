@@ -27,7 +27,7 @@ InkPi 是运行在 Raspberry Pi 4B 上的模块化 e-ink 仪表盘设备，
 | Resolution | 800x480, 4-level grayscale |
 | Runtime | Python 3.12, multi-process (systemd managed) |
 | Package Manager | uv + pyproject.toml |
-| Deploy Target | `meta_pi:/home/meta/Documents/InkPi` |
+| Deploy Target | `meta_pi:/home/meta/Workspace/InkPi` |
 | Current Version | 0.2.0 |
 | Test Coverage | 182 tests across 27 test files |
 
