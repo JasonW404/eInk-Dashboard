@@ -16,15 +16,16 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: cd backend && uv sync --extra dev
+      - uses: oven-sh/setup-bun@v2
+      - name: Build Web
+        run: cd frontend && bun install --frozen-lockfile && bun run build
       - name: Compile check
-        run: uv run python -m compileall -q inkpi tests
+        run: cd backend && uv run python -m compileall -q src/inkpi tests
       - name: Unit tests
-        run: uv run pytest -q
-      - name: Preview render
-        run: |
-          mkdir -p tmp
-          uv run inkpi-preview overview --mock-data --output tmp/overview.png
+        run: cd backend && uv run pytest -q
+      - name: Build package
+        run: cd backend && uv build
 
   lint:
     runs-on: ubuntu-latest
@@ -33,11 +34,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - run: uv sync --extra dev
+      - run: cd backend && uv sync --extra dev
       - name: Ruff check
-        run: uv run ruff check inkpi tests
+        run: cd backend && uv run ruff check src/inkpi tests
       - name: Ruff format check
-        run: uv run ruff format --check inkpi tests
+        run: cd backend && uv run ruff format --check src/inkpi tests
 
   smoke:
     runs-on: ubuntu-latest
@@ -46,6 +47,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - run: uv sync --extra dev
+      - run: cd backend && uv sync --extra dev
+      - uses: oven-sh/setup-bun@v2
+      - run: cd frontend && bun install --frozen-lockfile && bun run build
+      - run: cd backend && uv run playwright install --with-deps chromium
       - name: Smoke test
         run: bash scripts/smoke_test.sh

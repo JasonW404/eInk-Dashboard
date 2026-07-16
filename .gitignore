@@ -10,6 +10,8 @@ wheels/
 .venv
 .env
 .env.pi
+node_modules/
+*.tsbuildinfo
 
 
 # Binary files
@@ -18,9 +20,11 @@ wheels/
 
 # Test and cache
 .pytest_cache/
+.ruff_cache/
 
 # Runtime artifacts
 logs/
+tmp/
 .lgd-*
 
 # MkDocs build output

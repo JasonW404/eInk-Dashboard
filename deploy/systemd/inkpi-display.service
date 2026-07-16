@@ -1,0 +1,23 @@
+[Unit]
+Description=InkPi v1 E-Ink Display Pull Service
+After=local-fs.target inkpi-api.service
+Requires=inkpi-api.service
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__WORKDIR__
+Environment=HOME=__SERVICE_HOME__
+Environment=PATH=__SERVICE_PATH__
+Environment=PYTHONUNBUFFERED=1
+Environment=INKPI_API_URL=http://127.0.0.1:8080
+EnvironmentFile=-__SERVICE_HOME__/.config/inkpi/api.env
+ExecStart=__UV_BIN__ run inkpi-display --api-url http://127.0.0.1:8080
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+SuccessExitStatus=143 SIGTERM
+
+[Install]
+WantedBy=multi-user.target

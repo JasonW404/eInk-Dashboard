@@ -1,0 +1,68 @@
+:root {
+  font-family: 'JetBrains Mono', monospace;
+  color: #000;
+  background: #fff;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+html, body, #eink-root { width: 800px; height: 480px; margin: 0; overflow: hidden; }
+
+.eink-display {
+  width: 800px;
+  height: 480px;
+  padding: 20px 22px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.eink-header {
+  height: 42px;
+  border-bottom: 3px solid #000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-bottom: 6px;
+}
+
+.eink-header > div:first-child { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+.eink-header strong { font-size: 26px; letter-spacing: .12em; }
+.eink-header span { font-size: 10px; letter-spacing: .1em; }
+.eink-header-date { margin-left: auto; margin-right: 24px; font-size: 11px; font-weight: 700; letter-spacing: .08em; white-space: nowrap; }
+.eink-header-meta { display: flex; align-items: baseline; gap: 18px; font-weight: 700; }
+
+.eink-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+.eink-side { min-height: 0; display: grid; grid-template-rows: 98px 128px 1fr; gap: 10px; }
+.eink-block { min-height: 0; border: 2px solid #000; display: flex; flex-direction: column; }
+.eink-block > header { height: 34px; flex: none; border-bottom: 1px solid #000; padding: 0 10px; display: flex; align-items: center; justify-content: space-between; }
+.eink-block > header strong { font-size: 15px; letter-spacing: .07em; }
+.eink-block > header span { color: #555; font-size: 9px; letter-spacing: .08em; }
+.eink-block-body { flex: 1; min-height: 0; padding: 9px 12px; }
+.eink-todos .eink-block-body { padding: 8px 13px; }
+.eink-todo-list { list-style: none; padding: 0; margin: 0; counter-reset: todo; display: grid; }
+.eink-todo-list li { min-height: 40px; border-bottom: 1px solid #aaa; display: grid; grid-template-columns: 24px 1fr; align-items: center; gap: 5px; font-size: 15px; }
+.eink-todo-list li:last-child { border-bottom: 0; }
+.eink-todo-list li.complete strong { color: #666; text-decoration: line-through; }
+.eink-empty, .eink-placeholder { color: #666; font-size: 11px; letter-spacing: .08em; }
+.eink-meter { height: 10px; border: 1px solid #000; margin: 1px 0 7px; }
+.eink-meter span { display: block; width: 0; height: 100%; background: #000; }
+.eink-codex-copy { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.eink-codex-copy p { margin: 0; white-space: nowrap; }
+.eink-reset { font-size: 9px; font-weight: 700; letter-spacing: .02em; }
+.eink-pair { display: flex; gap: 38px; align-items: flex-start; }
+.eink-pair b { font-size: 22px; line-height: .9; }.eink-pair small { display: block; color: #555; font-size: 9px; margin-top: 4px; }
+.eink-calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 8px; }
+.eink-calendar > div { display: grid; gap: 2px; justify-items: center; }
+.eink-calendar span { font-size: 8px; font-weight: 700; line-height: 1; }
+.eink-calendar i { display: block; width: 22px; height: 18px; border: 1px solid #000; }
+.eink-calendar i.hatched { background: repeating-linear-gradient(135deg, #000 0 1px, #fff 1px 4px); }
+.eink-calendar i.solid { background: #000; }
+.eink-calendar .today i { outline: 2px solid #000; outline-offset: 1px; }
+.eink-hotspot { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.eink-hotspot > div { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.eink-hotspot span, .eink-hotspot small { font-size: 9px; letter-spacing: .03em; }
+.eink-hotspot strong { max-width: 130px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; white-space: nowrap; }
+.eink-hotspot svg { flex: none; shape-rendering: crispEdges; }
+.eink-system-idle { margin: 8px 0; color: #555; font-size: 11px; letter-spacing: .08em; }
