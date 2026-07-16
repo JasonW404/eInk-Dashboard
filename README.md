@@ -12,7 +12,7 @@ InkPi is a Raspberry Pi-centered ambient productivity terminal for a Waveshare
 
 There is one state path (SQLite), one browser UI (React), and one physical-panel
 owner (`inkpi-display`). The removed Python dashboard/core/admin runtime is not
-part of v1.
+part of the current architecture.
 
 ## Repository
 
@@ -57,13 +57,9 @@ uv run inkpi-display --api-url http://127.0.0.1:8080
 ## Raspberry Pi
 
 ```bash
-cd backend
-uv sync --extra rpi
-uv run playwright install chromium
-cd ../frontend
-bun install --frozen-lockfile
-bun run build
-cd ..
+install -d -m 700 ~/.config/inkpi
+install -m 600 deploy/env/api.env.example ~/.config/inkpi/api.env
+# Edit ~/.config/inkpi/api.env, then:
 sudo bash deploy/install_pi.sh
 ```
 

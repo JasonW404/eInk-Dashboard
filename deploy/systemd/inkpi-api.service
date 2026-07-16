@@ -1,8 +1,7 @@
 [Unit]
-Description=InkPi v1 API and React Web
+Description=InkPi API and React Web
 After=network-online.target inkpi-network-helper.service
-Wants=network-online.target
-Requires=inkpi-network-helper.service
+Wants=network-online.target inkpi-network-helper.service
 
 [Service]
 Type=simple
@@ -14,11 +13,13 @@ Environment=PATH=__SERVICE_PATH__
 Environment=PYTHONUNBUFFERED=1
 Environment=INKPI_NETWORK_HELPER_SOCKET=/run/inkpi-network-helper/helper.sock
 EnvironmentFile=-__SERVICE_HOME__/.config/inkpi/api.env
-ExecStart=__UV_BIN__ run inkpi-api --host 0.0.0.0 --port 8080 --web-dist __FRONTEND_DIST__
+ExecStart=__BACKEND_BIN__/inkpi-api --host 0.0.0.0 --port 8080 --web-dist __FRONTEND_DIST__
 Restart=always
 RestartSec=5
 TimeoutStopSec=45
 SuccessExitStatus=143 SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

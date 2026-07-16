@@ -14,7 +14,7 @@ Environment=PYTHONUNBUFFERED=1
 RuntimeDirectory=inkpi-network-helper
 RuntimeDirectoryMode=0770
 UMask=0007
-ExecStart=__UV_BIN__ run inkpi-network-helper --socket /run/inkpi-network-helper/helper.sock
+ExecStart=__BACKEND_BIN__/inkpi-network-helper --socket /run/inkpi-network-helper/helper.sock
 Restart=always
 RestartSec=5
 TimeoutStopSec=30

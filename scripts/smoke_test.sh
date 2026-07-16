@@ -29,10 +29,14 @@ uv run inkpi-api \
 API_PID=$!
 
 for _ in $(seq 1 30); do
-  curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null && break
+  curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1 && break
   sleep 0.25
 done
-curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null
+if ! curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null; then
+  echo "API did not become healthy" >&2
+  tail -50 "${RUN_DIR}/api.log" >&2 || true
+  exit 1
+fi
 curl -fsS "http://127.0.0.1:${PORT}/" >/dev/null
 
 uv run inkpi-display --api-url "http://127.0.0.1:${PORT}" \

@@ -70,13 +70,13 @@ environment unless re-enrollment is required.
 
 ## systemd installation
 
-Create `~/.config/inkpi/host-agent.env` with mode `0600`:
+Create `~/.config/inkpi/host-agent.env` from the deployment template with mode
+`0600`:
 
-```text
-INKPI_API_URL=http://inkpi.local:8080
-INKPI_AGENT_NAME=ubuntu-main
-INKPI_AGENT_ENROLLMENT_TOKEN=replace-with-a-long-random-value
-EINK_GITHUB_API_KEY=replace-with-a-token
+```bash
+install -d -m 700 ~/.config/inkpi
+install -m 600 deploy/env/host-agent.env.example ~/.config/inkpi/host-agent.env
+${EDITOR:-nano} ~/.config/inkpi/host-agent.env
 ```
 
 Then run from the repository root:
@@ -84,6 +84,10 @@ Then run from the repository root:
 ```bash
 sudo bash deploy/install_host_agent.sh
 ```
+
+The installer synchronizes backend dependencies, renders the systemd unit to
+use `backend/.venv/bin/inkpi-host-agent`, enables it, and checks that it remains
+active.
 
 After the first registration, remove `INKPI_AGENT_ENROLLMENT_TOKEN` from the
 file and restart the service.
