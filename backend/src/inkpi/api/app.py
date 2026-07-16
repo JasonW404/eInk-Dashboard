@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
 import os
 from pathlib import Path
 import secrets
 import socket
-from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -27,17 +26,21 @@ from inkpi.api.display_renderer import (
     DisplayRenderError,
     PlaywrightDisplayRenderer,
 )
+from inkpi.api.hotspot_status import hotspot_is_active
 from inkpi.api.models import Agent, Base
 from inkpi.api.network_status import connected_hotspot_clients
 from inkpi.api.schemas import (
     AgentCredentials,
     AgentHeartbeat,
     AgentRegistration,
+    AuthSessionRead,
     DisplayRevision,
     DisplayContextRead,
     DisplayRefreshReport,
     HotspotRead,
+    HotspotCredentialsRead,
     HotspotUpdate,
+    LoginRequest,
     ReportCreate,
     ReportRead,
     SystemInfoRead,
@@ -58,6 +61,7 @@ def create_app(
     network_helper: NetworkHelper | None = None,
     admin_auth: AdminAuthPolicy | None = None,
     hotspot_client_counter: Callable[[], int] | None = None,
+    hotspot_active_checker: Callable[[], bool] | None = None,
 ) -> FastAPI:
     """Build an isolated API application for production or tests."""
 
@@ -69,7 +73,10 @@ def create_app(
     helper = network_helper or HelperClient(os.getenv("INKPI_NETWORK_HELPER_SOCKET", DEFAULT_HELPER_SOCKET))
     auth_policy = admin_auth or AdminAuthPolicy.from_environment()
     client_counter = hotspot_client_counter or connected_hotspot_clients
-    hotspot_password = os.getenv("INKPI_HOTSPOT_PASSWORD")
+    active_checker = hotspot_active_checker or hotspot_is_active
+
+    def current_hotspot_password() -> str | None:
+        return helper.get_hotspot_password() or os.getenv("INKPI_HOTSPOT_PASSWORD")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -85,6 +92,46 @@ def create_app(
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.post("/api/auth/login", response_model=AuthSessionRead)
+    def login(
+        payload: LoginRequest,
+        request: Request,
+        response: Response,
+        origin: Annotated[str | None, Header()] = None,
+    ) -> AuthSessionRead:
+        try:
+            auth_policy.validate_mutation(
+                token=payload.token,
+                origin=origin,
+                host=request.headers.get("host"),
+            )
+            cookie, csrf_token, lifetime = auth_policy.issue_browser_session(payload.token, remember=payload.remember)
+        except AdminAuthError as error:
+            raise HTTPException(status_code=error.status, detail=str(error)) from error
+        response.set_cookie(
+            "inkpi_admin_session",
+            cookie,
+            max_age=lifetime if payload.remember else None,
+            httponly=True,
+            samesite="strict",
+            secure=request.url.scheme == "https",
+            path="/",
+        )
+        return AuthSessionRead(authenticated=True, csrf_token=csrf_token)
+
+    @app.get("/api/auth/session", response_model=AuthSessionRead)
+    def auth_session(inkpi_admin_session: Annotated[str | None, Cookie()] = None) -> AuthSessionRead:
+        try:
+            csrf_token = auth_policy.validate_browser_session(inkpi_admin_session)
+        except AdminAuthError:
+            return AuthSessionRead(authenticated=False)
+        return AuthSessionRead(authenticated=True, csrf_token=csrf_token)
+
+    @app.post("/api/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+    def logout(response: Response) -> Response:
+        response.delete_cookie("inkpi_admin_session", path="/", samesite="strict")
+        return Response(status_code=status.HTTP_204_NO_CONTENT, headers=response.headers)
 
     @app.get("/api/todos", response_model=list[TodoRead])
     def todos(session: SessionDependency) -> list[object]:
@@ -135,12 +182,14 @@ def create_app(
                 detail="display context is local-only",
             )
         settings = repository.get_hotspot_settings(session)
+        hotspot_active = active_checker()
         qr_payload = None
-        if settings.enabled and hotspot_password:
+        hotspot_password = current_hotspot_password()
+        if hotspot_active and hotspot_password:
             qr_payload = _wifi_qr_payload(settings.ssid, hotspot_password)
         return DisplayContextRead(
-            hotspot_enabled=settings.enabled,
-            hotspot_ssid=settings.ssid if settings.enabled else None,
+            hotspot_enabled=hotspot_active,
+            hotspot_ssid=settings.ssid if hotspot_active else None,
             wifi_qr_payload=qr_payload,
         )
 
@@ -197,11 +246,26 @@ def create_app(
     def network_settings(session: SessionDependency) -> HotspotRead:
         settings = repository.get_hotspot_settings(session)
         return HotspotRead(
-            enabled=settings.enabled,
+            enabled=active_checker(),
             ssid=settings.ssid,
             connected_clients=client_counter(),
             updated_at=settings.updated_at,
         )
+
+    @app.get("/api/settings/network/hotspot/credentials", response_model=HotspotCredentialsRead)
+    def hotspot_credentials(
+        response: Response,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
+    ) -> HotspotCredentialsRead:
+        try:
+            auth_policy.validate_browser_session(inkpi_admin_session)
+        except AdminAuthError as error:
+            raise HTTPException(status_code=error.status, detail=str(error)) from error
+        password = current_hotspot_password()
+        if not password:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="hotspot password is unavailable")
+        response.headers["Cache-Control"] = "no-store"
+        return HotspotCredentialsRead(password=password)
 
     @app.get("/api/settings/system", response_model=SystemInfoRead)
     def system_settings(session: SessionDependency) -> SystemInfoRead:
@@ -221,15 +285,20 @@ def create_app(
         session: SessionDependency,
         authorization: Annotated[str | None, Header()] = None,
         x_admin_token: Annotated[str | None, Header()] = None,
+        x_csrf_token: Annotated[str | None, Header()] = None,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
         origin: Annotated[str | None, Header()] = None,
     ) -> HotspotRead:
-        nonlocal hotspot_password
         try:
-            auth_policy.validate_mutation(
-                token=x_admin_token or extract_bearer_token(authorization),
-                origin=origin,
-                host=request.headers.get("host"),
-            )
+            if inkpi_admin_session:
+                auth_policy.validate_browser_session(inkpi_admin_session, x_csrf_token)
+                auth_policy.validate_origin(origin, request.headers.get("host"))
+            else:
+                auth_policy.validate_mutation(
+                    token=x_admin_token or extract_bearer_token(authorization),
+                    origin=origin,
+                    host=request.headers.get("host"),
+                )
         except AdminAuthError as error:
             raise HTTPException(status_code=error.status, detail=str(error)) from error
 
@@ -248,7 +317,6 @@ def create_app(
                 "password": payload.password,
                 "mode": "visible",
             }
-            hotspot_password = payload.password
         operation = helper.submit(build_operation_request(action, operation_payload))
         if operation.status == "failed":
             raise HTTPException(
@@ -260,9 +328,10 @@ def create_app(
             enabled=payload.enabled,
             ssid=payload.ssid,
         )
+        repository.bump_revision(session)
         session.commit()
         return HotspotRead(
-            enabled=saved.enabled,
+            enabled=active_checker(),
             ssid=saved.ssid,
             connected_clients=client_counter(),
             updated_at=saved.updated_at,

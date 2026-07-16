@@ -70,7 +70,7 @@ def test_hotspot_password_passes_only_via_stdin(mock_run: MagicMock) -> None:
     )
 
     assert result["status"] == "succeeded"
-    hotspot_call = next(call for call in mock_run.call_args_list if "hotspot" in call.args[0])
+    hotspot_call = next(call for call in mock_run.call_args_list if call.kwargs.get("input"))
     assert hotspot_call.kwargs["input"] == b"hotspot-secret"
     assert "hotspot-secret" not in str(hotspot_call.args[0])
     assert "hotspot-secret" not in str(result)
@@ -113,6 +113,22 @@ def test_hotspot_disable_succeeds(mock_run: MagicMock) -> None:
     )
 
     assert result["status"] == "succeeded"
+
+
+@patch("inkpi.network.privileged.subprocess.run", return_value=_ok_result("stored-hotspot-password\n"))
+def test_hotspot_credentials_are_read_from_nmcli_stdout(mock_run: MagicMock) -> None:
+    result = handle_command(
+        {
+            "action": "hotspot_credentials",
+            "payload": {"operation_id": "op-credentials"},
+        }
+    )
+
+    assert result["status"] == "succeeded"
+    assert result["password"] == "stored-hotspot-password"
+    argv = mock_run.call_args.args[0]
+    assert "--show-secrets" in argv
+    assert "stored-hotspot-password" not in argv
 
 
 @patch("inkpi.network.privileged.subprocess.run", return_value=_ok_result())

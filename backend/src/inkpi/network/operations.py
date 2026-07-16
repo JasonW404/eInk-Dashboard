@@ -15,6 +15,7 @@ NetworkOperationAction = Literal[
     "hotspot_disable",
     "hotspot_configure",
     "hotspot_rotate_password",
+    "hotspot_credentials",
     "policy_reconcile",
 ]
 
@@ -63,6 +64,8 @@ class NetworkHelper(Protocol):
 
     def list_operations(self) -> list[NetworkOperation]: ...
 
+    def get_hotspot_password(self) -> str | None: ...
+
 
 class InMemoryNetworkHelper:
     """Local fake helper used until the real privileged helper is wired.
@@ -73,8 +76,11 @@ class InMemoryNetworkHelper:
 
     def __init__(self) -> None:
         self._operations: dict[str, NetworkOperation] = {}
+        self._hotspot_password: str | None = None
 
     def submit(self, request: NetworkOperationRequest) -> NetworkOperation:
+        if request.action in {"hotspot_enable", "hotspot_configure"} and request.password:
+            self._hotspot_password = request.password
         operation = NetworkOperation(
             operation_id=str(uuid4()),
             action=request.action,
@@ -85,6 +91,9 @@ class InMemoryNetworkHelper:
         )
         self._operations[operation.operation_id] = operation
         return operation
+
+    def get_hotspot_password(self) -> str | None:
+        return self._hotspot_password
 
     def get_operation(self, operation_id: str) -> NetworkOperation | None:
         return self._operations.get(operation_id)
@@ -150,6 +159,9 @@ def build_operation_request(
         )
 
     if action in {"hotspot_disable", "policy_reconcile"}:
+        return NetworkOperationRequest(action=action)
+
+    if action == "hotspot_credentials":
         return NetworkOperationRequest(action=action)
 
     raise ValueError(f"unsupported network operation: {action}")

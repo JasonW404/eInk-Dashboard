@@ -45,6 +45,13 @@ export interface SystemInfo {
   last_refresh: string | null
 }
 
+export interface AuthSession {
+  authenticated: boolean
+  csrf_token: string | null
+}
+
+let csrfToken: string | null = null
+
 type TodoChanges = Partial<Pick<Todo, 'title' | 'completed' | 'display_on_eink'>>
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -61,19 +68,36 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  login: async (token: string, remember: boolean) => {
+    const session = await request<AuthSession>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ token, remember }),
+    })
+    csrfToken = session.csrf_token
+    return session
+  },
+  session: async () => {
+    const session = await request<AuthSession>('/api/auth/session')
+    csrfToken = session.csrf_token
+    return session
+  },
+  logout: async () => {
+    await request<void>('/api/auth/logout', { method: 'POST' })
+    csrfToken = null
+  },
   health: () => request<{ status: string }>('/api/health'),
   todos: () => request<Todo[]>('/api/todos'),
   revision: () => request<DisplayRevision>('/api/display/revision'),
   displayContext: () => request<DisplayContext>('/api/display/context'),
   latestReports: () => request<LatestReport[]>('/api/reports/latest'),
   networkSettings: () => request<HotspotSettings>('/api/settings/network'),
+  hotspotCredentials: () => request<{ password: string }>('/api/settings/network/hotspot/credentials'),
   systemSettings: () => request<SystemInfo>('/api/settings/system'),
   updateHotspot: (
     changes: { enabled: boolean; ssid: string; password?: string },
-    adminToken: string,
   ) => request<HotspotSettings>('/api/settings/network/hotspot', {
     method: 'PUT',
-    headers: { 'X-Admin-Token': adminToken },
+    headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined,
     body: JSON.stringify(changes),
   }),
   createTodo: (title: string) => request<Todo>('/api/todos', {

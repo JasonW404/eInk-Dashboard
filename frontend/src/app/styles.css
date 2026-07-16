@@ -9,6 +9,14 @@
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input { font: inherit; }
 button { color: inherit; }
+.auth-loading { min-height: 100vh; display: grid; place-items: center; font-size: 28px; font-weight: 700; letter-spacing: .12em; }
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #f5f5f5; }
+.login-card { width: min(100%, 430px); display: grid; gap: 28px; border: 1px solid #aaa; background: #fff; padding: 42px; }
+.login-card h1 { font-size: 30px; }
+.login-card > label:not(.remember-login) { display: grid; gap: 8px; color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.login-card input[type="password"] { width: 100%; border: 1px solid #aaa; padding: 12px; }
+.remember-login { display: flex; align-items: center; gap: 9px; font-size: 11px; }
+.login-card .primary-button { min-height: 44px; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 260px minmax(0, 1fr); }
 .sidebar { position: sticky; top: 0; height: 100vh; border-right: 1px solid #d9d9d9; padding: 38px 28px; display: flex; flex-direction: column; }
@@ -19,6 +27,8 @@ button { color: inherit; }
 .nav-item { border: 0; border-left: 2px solid transparent; background: transparent; padding: 12px 14px; text-align: left; cursor: pointer; }
 .nav-item:hover, .nav-item.active { border-color: #000; background: #f5f5f5; font-weight: 700; }
 .sidebar-foot { margin-top: auto; color: #aaa; font-size: 9px; }
+.logout-button { margin-top: auto; border: 0; background: transparent; padding: 10px 14px; text-align: left; color: #666; font-size: 9px; cursor: pointer; }
+.logout-button + .sidebar-foot { margin-top: 12px; }
 .main-content { width: 100%; max-width: 1180px; padding: 54px 64px 90px; }
 .mobile-header, .mobile-nav { display: none; }
 .page-heading { border-bottom: 2px solid #000; margin-bottom: 32px; padding-bottom: 18px; }
@@ -69,6 +79,9 @@ dt { color: #666; } dd { margin: 0; font-weight: 700; text-align: right; }
 .settings-form { display: grid; gap: 14px; margin-bottom: 22px; }
 .settings-form label { display: grid; gap: 7px; color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .settings-form input { width: 100%; border: 1px solid #aaa; color: #000; background: #fff; padding: 12px; }
+.password-field { position: relative; }
+.password-field input { padding-right: 68px; }
+.password-field button { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); border: 0; padding: 6px; background: transparent; color: #333; font-size: 10px; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 22px; }
 .settings-actions button { min-height: 40px; border: 1px solid #000; background: #fff; padding: 8px 14px; cursor: pointer; }
 .settings-actions .primary-button { background: #000; color: #fff; }

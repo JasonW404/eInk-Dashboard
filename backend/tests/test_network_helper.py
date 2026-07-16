@@ -36,8 +36,12 @@ def test_hotspot_enable_hidden_sharing_plan() -> None:
     commands = [step.argv for step in plan.steps]
 
     assert commands[0] == ("nmcli", "radio", "wifi", "on")
+    add_command = next(command for command in commands if command[:3] == ("nmcli", "connection", "add"))
+    assert "192.168.50.1/24" in add_command
+    assert add_command[add_command.index("autoconnect") + 1] == "yes"
+    assert add_command[add_command.index("connection.autoconnect-priority") + 1] == "999"
     assert any("802-11-wireless.hidden" in command for command in commands)
-    assert any(command[-2:] == ("ipv4.method", "shared") for command in commands)
+    assert "shared" in add_command
 
 
 def test_hotspot_rotate_password_plan_never_contains_real_secret() -> None:

@@ -62,6 +62,15 @@ class HelperClient:
         """Return all tracked operations."""
         return list(self._operations.values())
 
+    def get_hotspot_password(self) -> str | None:
+        """Read the hotspot PSK from NetworkManager through the privileged helper."""
+        try:
+            response = self._send_request("hotspot_credentials", {"action": "hotspot_credentials"})
+        except (ConnectionError, OSError, json.JSONDecodeError):
+            return None
+        password = response.get("password")
+        return password if isinstance(password, str) and password else None
+
     def _send_request(self, action: str, payload: dict) -> dict:
         """Send a JSON-RPC request to the helper and return the response payload."""
         message = {"action": payload.get("action", action), "payload": payload}
@@ -90,6 +99,9 @@ class FakeHelperClient:
 
     def list_operations(self) -> list[NetworkOperation]:
         return self._inner.list_operations()
+
+    def get_hotspot_password(self) -> str | None:
+        return self._inner.get_hotspot_password()
 
 
 def _request_payload(request: NetworkOperationRequest, operation_id: str) -> dict:

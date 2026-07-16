@@ -75,9 +75,8 @@ def plan_network_operation(request: NetworkOperationRequest) -> NetworkCommandPl
                 note="optional: replace the existing hotspot atomically",
             ),
             CommandStep(
-                _hotspot_enable_argv(request),
-                secret_stdin=request.password_supplied,
-                note="hotspot password is accepted only through helper stdin",
+                _hotspot_add_argv(request),
+                note="create the hotspot without activating a conflicting default subnet",
             ),
         ]
         if mode == "hidden":
@@ -86,6 +85,14 @@ def plan_network_operation(request: NetworkOperationRequest) -> NetworkCommandPl
             )
         if request.share_upstream:
             steps.append(CommandStep(("nmcli", "connection", "modify", "InkPi Hotspot", "ipv4.method", "shared")))
+        steps.append(
+            CommandStep(
+                ("nmcli", "--ask", "connection", "up", "InkPi Hotspot"),
+                secret_stdin=request.password_supplied,
+                note="hotspot password is accepted only through helper stdin",
+            )
+        )
+        if request.share_upstream:
             upstream = _upstream_interface(request)
             steps.extend(_nat_enable_steps(upstream))
             steps.append(CommandStep(("sysctl", "-w", "net.ipv4.ip_forward=1"), note="enable IP forwarding for NAT"))
@@ -216,21 +223,32 @@ def _wifi_connect_argv(request: NetworkOperationRequest) -> tuple[str, ...]:
     return tuple(argv)
 
 
-def _hotspot_enable_argv(request: NetworkOperationRequest) -> tuple[str, ...]:
-    argv = ["nmcli"]
-    if request.password_supplied:
-        argv.append("--ask")
-    argv.extend(
-        [
-            "device",
-            "wifi",
-            "hotspot",
-            "ifname",
-            "wlan0",
-            "con-name",
-            "InkPi Hotspot",
-            "ssid",
-            request.ssid or "InkPi",
-        ]
+def _hotspot_add_argv(request: NetworkOperationRequest) -> tuple[str, ...]:
+    """Create an inactive AP profile on a subnet that cannot collide with common wired sharing."""
+    return (
+        "nmcli",
+        "connection",
+        "add",
+        "type",
+        "wifi",
+        "ifname",
+        "wlan0",
+        "con-name",
+        "InkPi Hotspot",
+        "autoconnect",
+        "yes",
+        "ssid",
+        request.ssid or "InkPi",
+        "802-11-wireless.mode",
+        "ap",
+        "connection.autoconnect-priority",
+        "999",
+        "ipv4.method",
+        "shared",
+        "ipv4.addresses",
+        "192.168.50.1/24",
+        "ipv6.method",
+        "disabled",
+        "wifi-sec.key-mgmt",
+        "wpa-psk",
     )
-    return tuple(argv)

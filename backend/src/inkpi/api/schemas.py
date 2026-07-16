@@ -100,6 +100,20 @@ class HotspotRead(BaseModel):
     operation: dict[str, object] | None = None
 
 
+class HotspotCredentialsRead(BaseModel):
+    password: str
+
+
+class LoginRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=500)
+    remember: bool = False
+
+
+class AuthSessionRead(BaseModel):
+    authenticated: bool
+    csrf_token: str | None = None
+
+
 class AgentRegistration(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     enrollment_token: str | None = Field(default=None, max_length=500)

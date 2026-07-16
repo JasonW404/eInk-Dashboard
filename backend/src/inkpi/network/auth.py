@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hmac
+import base64
+import hashlib
 import os
 import secrets
 import time
@@ -128,6 +130,41 @@ class AdminAuthPolicy:
         """Validate token and create a browser session."""
         self.validate_mutation(token=token, origin=None, host=None)
         return sessions.create_session()
+
+    def issue_browser_session(self, token: str, *, remember: bool) -> tuple[str, str, int]:
+        """Return a signed, restart-safe session cookie, CSRF token, and lifetime."""
+        self.validate_mutation(token=token, origin=None, host=None)
+        if self.token is None:  # pragma: no cover - guarded by validation
+            raise AdminAuthError("admin token is not configured", status=503)
+        lifetime = 30 * 24 * 3600 if remember else 12 * 3600
+        csrf_token = secrets.token_urlsafe(24)
+        payload = f"{int(time.time()) + lifetime}:{csrf_token}:{secrets.token_urlsafe(18)}"
+        encoded = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+        signature = hmac.new(self.token.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+        return f"{encoded}.{signature}", csrf_token, lifetime
+
+    def validate_browser_session(self, cookie: str | None, csrf_token: str | None = None) -> str:
+        """Validate a signed browser cookie and optionally its CSRF token."""
+        if not self.token or not cookie:
+            raise AdminAuthError("login required", status=401)
+        encoded, separator, signature = cookie.partition(".")
+        expected = hmac.new(self.token.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+        if not separator or not hmac.compare_digest(signature, expected):
+            raise AdminAuthError("invalid or expired session", status=401)
+        try:
+            padding = "=" * (-len(encoded) % 4)
+            expires, stored_csrf, _ = base64.urlsafe_b64decode(encoded + padding).decode().split(":", 2)
+        except (ValueError, UnicodeDecodeError):
+            raise AdminAuthError("invalid or expired session", status=401) from None
+        if int(expires) < int(time.time()):
+            raise AdminAuthError("invalid or expired session", status=401)
+        if csrf_token is not None and not hmac.compare_digest(stored_csrf, csrf_token):
+            raise AdminAuthError("invalid CSRF token", status=403)
+        return stored_csrf
+
+    def validate_origin(self, origin: str | None, host: str | None) -> None:
+        if origin and host and not _same_origin_host(origin, host):
+            raise AdminAuthError("cross-origin mutation rejected", status=403)
 
 
 class AdminAuthError(ValueError):

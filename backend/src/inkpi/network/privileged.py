@@ -28,6 +28,7 @@ ALLOWED_ACTIONS = frozenset(
         "hotspot_disable",
         "hotspot_configure",
         "hotspot_rotate_password",
+        "hotspot_credentials",
         "policy_reconcile",
     }
 )
@@ -64,6 +65,32 @@ def handle_command(request: dict[str, Any]) -> dict[str, Any]:
             "operation_id": operation_id,
             "status": "failed",
             "message": "invalid request: hotspot password rotation must use hotspot_configure",
+        }
+
+    if op_request.action == "hotspot_credentials":
+        step = CommandStep(
+            (
+                "nmcli",
+                "--show-secrets",
+                "-g",
+                "802-11-wireless-security.psk",
+                "connection",
+                "show",
+                "InkPi Hotspot",
+            )
+        )
+        result = _execute_step(step, "")
+        if not result["ok"]:
+            return {
+                "operation_id": operation_id,
+                "status": "failed",
+                "message": "hotspot credentials unavailable",
+            }
+        return {
+            "operation_id": operation_id,
+            "status": "succeeded",
+            "message": "hotspot credentials loaded",
+            "password": result.get("stdout", "").strip(),
         }
 
     try:

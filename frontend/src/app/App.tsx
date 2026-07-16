@@ -18,6 +18,7 @@ function currentRoute(): Route {
 
 export function App() {
   const [route, setRoute] = useState<Route>(currentRoute)
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null)
 
   useEffect(() => {
     const navigate = () => setRoute(currentRoute())
@@ -25,16 +26,24 @@ export function App() {
     return () => window.removeEventListener('popstate', navigate)
   }, [])
 
+  useEffect(() => {
+    api.session().then((session) => setAuthenticated(session.authenticated)).catch(() => setAuthenticated(false))
+  }, [])
+
   const navigate = (next: Route) => {
     window.history.pushState({}, '', next)
     setRoute(next)
   }
+
+  if (authenticated === null) return <div className="auth-loading">INKPI</div>
+  if (!authenticated) return <LoginPage onLogin={() => setAuthenticated(true)} />
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <Brand />
         <Navigation route={route} navigate={navigate} />
+        <button className="logout-button" onClick={() => void api.logout().then(() => setAuthenticated(false))}>LOG OUT</button>
         <p className="sidebar-foot">RASPBERRY PI / 800×480</p>
       </aside>
       <main className="main-content">
@@ -47,6 +56,40 @@ export function App() {
         <Navigation route={route} navigate={navigate} />
       </nav>
     </div>
+  )
+}
+
+function LoginPage({ onLogin }: { onLogin: () => void }) {
+  const [token, setToken] = useState('')
+  const [remember, setRemember] = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const login = async () => {
+    if (!token) return
+    setLoading(true)
+    setError('')
+    try {
+      await api.login(token, remember)
+      onLogin()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Login failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <main className="login-page">
+      <form className="login-card" onSubmit={(event) => { event.preventDefault(); void login() }}>
+        <Brand />
+        <div><p className="eyebrow">DEVICE ADMINISTRATION</p><h1>Sign in to InkPi</h1></div>
+        <label>Admin token<input type="password" value={token} autoFocus autoComplete="current-password" onChange={(event) => setToken(event.target.value)} /></label>
+        <label className="remember-login"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Remember login</label>
+        <button className="primary-button" disabled={loading || !token}>{loading ? 'SIGNING IN…' : 'SIGN IN'}</button>
+        {error && <p className="error-message" role="alert">{error}</p>}
+      </form>
+    </main>
   )
 }
 
@@ -231,28 +274,23 @@ function SettingsPage() {
   const [system, setSystem] = useState<SystemInfo | null>(null)
   const [ssid, setSsid] = useState('InkPi-AP')
   const [password, setPassword] = useState('')
-  const [adminToken, setAdminToken] = useState('')
-  const [showQr, setShowQr] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    Promise.all([api.networkSettings(), api.systemSettings()])
-      .then(([settings, systemInfo]) => {
+    Promise.all([api.networkSettings(), api.systemSettings(), api.hotspotCredentials().catch(() => null)])
+      .then(([settings, systemInfo, credentials]) => {
         setNetwork(settings)
         setSystem(systemInfo)
         setSsid(settings.ssid)
+        setPassword(credentials?.password ?? '')
       })
       .catch((reason: Error) => setMessage(reason.message))
   }, [])
 
   const save = async (enabled: boolean) => {
     setMessage('')
-    setShowQr(false)
-    if (!adminToken.trim()) {
-      setMessage('Admin token is required for network changes.')
-      return
-    }
     if (enabled && password.length < 8) {
       setMessage('Enter the current or new hotspot password (at least 8 characters).')
       return
@@ -261,10 +299,10 @@ function SettingsPage() {
     try {
       const updated = await api.updateHotspot(
         { enabled, ssid: ssid.trim(), ...(enabled ? { password } : {}) },
-        adminToken.trim(),
       )
       setNetwork(updated)
       setSsid(updated.ssid)
+      setShowPassword(false)
       setMessage(enabled ? 'Hotspot configuration applied.' : 'Hotspot disabled.')
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : 'Network request failed')
@@ -287,21 +325,18 @@ function SettingsPage() {
           </div>
           <div className="settings-form">
             <label>SSID<input value={ssid} maxLength={32} onChange={(event) => setSsid(event.target.value)} /></label>
-            <label>Password<input type="password" value={password} minLength={8} maxLength={63} autoComplete="new-password" onChange={(event) => {
+            <label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={password} minLength={8} maxLength={63} autoComplete="new-password" onChange={(event) => {
               setPassword(event.target.value)
-              setShowQr(false)
-            }} placeholder="Not stored by InkPi" /></label>
-            <label>Admin token<input type="password" value={adminToken} autoComplete="off" onChange={(event) => setAdminToken(event.target.value)} placeholder="INKPI_ADMIN_TOKEN" /></label>
+            }} placeholder="Stored in protected NetworkManager profile" /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword} aria-label={showPassword ? 'Hide hotspot password' : 'Show hotspot password'}>{showPassword ? 'HIDE' : 'SHOW'}</button></div></label>
           </div>
           <DefinitionList rows={[["Connected devices", String(network?.connected_clients ?? '—')], ["Updated", network ? new Date(network.updated_at).toLocaleString() : '—']]} />
           <div className="settings-actions">
             <button className="primary-button" disabled={saving || !ssid.trim()} onClick={() => void save(true)}>{network?.enabled ? 'Apply & Restart' : 'Enable Hotspot'}</button>
             <button disabled={saving || !network?.enabled} onClick={() => void save(false)}>Disable</button>
-            <button disabled={!password || !ssid.trim()} onClick={() => setShowQr((value) => !value)}>Generate QR Code</button>
           </div>
           {message && <p className="settings-message" role="status">{message}</p>}
-          {showQr && password && <div className="wifi-qr"><QRCodeSVG value={wifiQrValue(ssid, password)} size={180} level="M" marginSize={2} title={`Connect to ${ssid}`} /><p>Scan to join {ssid}</p></div>}
-          <p className="muted">The password stays only in this browser field and the current privileged-helper request. InkPi never returns or stores it.</p>
+          {network?.enabled && password && <div className="wifi-qr"><QRCodeSVG value={wifiQrValue(ssid, password)} size={180} level="M" marginSize={2} title={`Connect to ${ssid}`} /><p>Scan to join {ssid}</p></div>}
+          <p className="muted">The password is stored only in NetworkManager's protected hotspot profile and is available after login.</p>
         </Panel>
         <Panel title="Display Information">
           <DefinitionList rows={[["Resolution", "800 × 480"], ["Last refresh", system?.last_refresh ? new Date(system.last_refresh).toLocaleString() : 'Not reported'], ["Current revision", String(system?.display_revision ?? '—')], ["Device uptime", formatUptime(system?.uptime_seconds)]]} />

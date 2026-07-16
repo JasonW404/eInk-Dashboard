@@ -31,6 +31,7 @@ def test_hotspot_settings_require_admin_auth_and_never_return_password(tmp_path:
         network_helper=helper,
         admin_auth=AdminAuthPolicy(token="admin-secret"),
         hotspot_client_counter=lambda: 2,
+        hotspot_active_checker=lambda: bool(helper.requests and helper.requests[-1].action != "hotspot_disable"),
     )
 
     with TestClient(app) as client:
@@ -76,6 +77,7 @@ def test_hotspot_enable_validates_password_and_same_origin(tmp_path: Path) -> No
         display_renderer=FakeDisplayRenderer(),
         network_helper=CapturingNetworkHelper(),
         admin_auth=AdminAuthPolicy(token="admin-secret"),
+        hotspot_active_checker=lambda: False,
     )
     payload = {"enabled": True, "ssid": "InkPi-Test"}
 
@@ -100,12 +102,14 @@ def test_hotspot_enable_validates_password_and_same_origin(tmp_path: Path) -> No
 
 def test_local_display_context_exposes_ephemeral_wifi_qr_only(tmp_path: Path) -> None:
     database_path = tmp_path / "display-context.db"
+    helper = CapturingNetworkHelper()
     app = create_app(
         _database_url(database_path),
         web_dist=tmp_path / "missing-web",
         display_renderer=FakeDisplayRenderer(),
-        network_helper=CapturingNetworkHelper(),
+        network_helper=helper,
         admin_auth=AdminAuthPolicy(token="admin-secret"),
+        hotspot_active_checker=lambda: bool(helper.requests and helper.requests[-1].action != "hotspot_disable"),
     )
 
     with TestClient(app) as client:
@@ -139,3 +143,47 @@ def test_connected_hotspot_clients_counts_reachable_unique_neighbors(tmp_path: P
 
     assert connected_hotspot_clients(arp) == 1
     assert connected_hotspot_clients(tmp_path / "missing") == 0
+
+
+def test_browser_login_remember_credentials_and_hotspot_revision(tmp_path: Path) -> None:
+    helper = CapturingNetworkHelper()
+    app = create_app(
+        _database_url(tmp_path / "browser-auth.db"),
+        web_dist=tmp_path / "missing-web",
+        display_renderer=FakeDisplayRenderer(),
+        network_helper=helper,
+        admin_auth=AdminAuthPolicy(token="admin-secret"),
+        hotspot_active_checker=lambda: bool(helper.requests),
+    )
+
+    with TestClient(app) as client:
+        denied = client.get("/api/settings/network/hotspot/credentials")
+        assert denied.status_code == 401
+
+        login = client.post("/api/auth/login", json={"token": "admin-secret", "remember": True})
+        assert login.status_code == 200
+        assert login.json()["authenticated"] is True
+        assert "Max-Age=" in login.headers["set-cookie"]
+        csrf_token = login.json()["csrf_token"]
+
+        before = client.get("/api/display/revision").json()["revision"]
+        enabled = client.put(
+            "/api/settings/network/hotspot",
+            headers={"X-CSRF-Token": csrf_token},
+            json={"enabled": True, "ssid": "InkPi-Test", "password": "wifi-secret"},
+        )
+        assert enabled.status_code == 200
+        after = client.get("/api/display/revision").json()["revision"]
+        assert after == before + 1
+
+        credentials = client.get("/api/settings/network/hotspot/credentials")
+        assert credentials.status_code == 200
+        assert credentials.json()["password"] == "wifi-secret"
+
+        session = client.get("/api/auth/session").json()
+        assert session["authenticated"] is True
+        assert session["csrf_token"] == csrf_token
+
+        logout = client.post("/api/auth/logout")
+        assert logout.status_code == 204
+        assert client.get("/api/auth/session").json()["authenticated"] is False
