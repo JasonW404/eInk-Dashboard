@@ -50,9 +50,8 @@ nav:
       - Overview: development/index.md
       - Architecture: development/architecture.md
       - Developer Guide: development/developer-guide.md
+      - Frontend and eInk UI: development/frontend.md
       - Services:
           - API: development/services/api.md
           - Display: development/services/display.md
           - Host Agent: development/services/host-agent.md
-      - Redesign Handoff: development/update.md
-      - UI Specification: development/update.ui.md

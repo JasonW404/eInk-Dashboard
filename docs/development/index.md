@@ -1,14 +1,20 @@
 # Development Docs
 
-This section is for contributors working on InkPi source code and deployment
-infrastructure.
+These pages describe the code and runtime as they exist in the current
+repository.
 
-- [Architecture](architecture.md) defines process ownership, data flow, and
-  security boundaries.
-- [Developer Guide](developer-guide.md) covers the monorepo layout, local setup,
-  verification, and implementation rules.
-- Service references document the [API](services/api.md),
-  [display process](services/display.md), and optional
-  [host agent](services/host-agent.md).
-- [Redesign Handoff](update.md) and [UI Specification](update.ui.md) preserve the
-  design decisions that led to the current runtime.
+- [Architecture](architecture.md): process ownership, data flow, persistence,
+  security, and failure behavior.
+- [Developer Guide](developer-guide.md): monorepo layout, setup, local runtime,
+  verification, and change rules.
+- [Frontend and eInk UI](frontend.md): implemented Web routes, eInk content,
+  rendering contract, and styling constraints.
+- [API service](services/api.md): HTTP surface, storage, rendering, and runtime
+  configuration.
+- [Display service](services/display.md): polling and longevity-first refresh
+  policy.
+- [Host agent](services/host-agent.md): Codex/GitHub collection, enrollment,
+  scheduling, and installation.
+
+Installation and day-to-day operation belong in the
+[User Manual](../user-manual/index.md).

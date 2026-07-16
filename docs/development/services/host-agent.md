@@ -1,81 +1,89 @@
-# inkpi-host-agent Service
+# `inkpi-host-agent`
 
-`inkpi-host-agent` is the optional Ubuntu-side data provider described in the
-v1.0 architecture. It does not host Web pages, control the eInk panel, or own
-application state. It only collects external data and uploads expiring reports
-to the Raspberry Pi API.
+`inkpi-host-agent` is an optional Ubuntu-side collector. It does not own
+application state, serve Web pages, or control the eInk panel. It registers
+with the Pi API, sends heartbeats, and uploads expiring Codex and GitHub reports.
 
 ## Collectors
 
-The initial process contains two independent collectors:
+| Collector | Source | Default interval |
+|---|---|---:|
+| `codex` | Local Codex CLI app-server API | 300 seconds |
+| `github` | GitHub GraphQL with REST fallback | 21,600 seconds |
 
-- `CodexCollector`: Codex plan and usage windows via the local Codex CLI.
-- `GitHubCollector`: username-scoped monthly commits, pull requests, and daily
-  contribution calendar through GitHub GraphQL `contributionsCollection`.
+Codex collection reports the plan, usage windows, remaining percentage, and
+reset times. `CODEX_BINARY` can override binary discovery.
 
-The GitHub collector uses the configured Username rather than repository
-ownership, so qualifying contributions can come from personal, organization,
-collaborator, and other repositories. Private totals require a token that can
-read the relevant repositories, any required organization SSO authorization,
-and the GitHub profile setting that exposes private contribution counts. When
-GraphQL contribution collection is unavailable, the legacy per-repository REST
-collector remains as a compatibility fallback.
+GitHub collection is scoped to the configured username rather than repository
+ownership. The primary GraphQL path reports current-month commits, pull
+requests, and daily contribution counts across visible personal,
+organization, collaborator, and private repositories. Private data requires a
+token with the necessary repository and organization authorization. The REST
+fallback uses configured user, organization, and extra repositories.
 
-Each collector has its own interval. A collector failure is logged without
-stopping heartbeat or the other collector.
+A collector failure is logged without stopping heartbeat or the other
+collector. Report TTL is three times its collector interval, with a minimum of
+60 seconds.
 
-## Registration and secrets
+## Configuration
 
-Set the same one-time enrollment secret on the Pi API and Ubuntu host. The Pi
-returns an agent token once; the host stores it in
-`~/.config/inkpi/host-agent.json` with mode `0600`. The Pi database stores only
-its SHA-256 hash.
+Non-secret collector configuration lives in
+`~/.config/inkpi/config.json`:
 
-No token is written to editable InkPi JSON configuration or logs.
-
-## Run once
-
-On the Raspberry Pi:
-
-```bash
-cd backend
-export INKPI_AGENT_ENROLLMENT_TOKEN='replace-with-a-long-random-value'
-uv run inkpi-api --host 0.0.0.0 --port 8080
+```json
+{
+  "schema_version": 1,
+  "github": {
+    "username": "your-user",
+    "organization": "your-org",
+    "commit_email": "",
+    "extra_repos": []
+  },
+  "scheduler": {
+    "github_interval_seconds": 21600,
+    "codex_interval_seconds": 300,
+    "codex_rpc_timeout_seconds": 20
+  }
+}
 ```
 
-On Ubuntu:
+Supply the GitHub token through `EINK_GITHUB_API_KEY` or
+`EINK_GITHUB_TOKEN`, not through JSON.
+
+## Enrollment
+
+Set the same one-time `INKPI_AGENT_ENROLLMENT_TOKEN` on the Pi API and the host.
+Registration returns an agent token once. The host stores it in
+`~/.config/inkpi/host-agent.json` with mode `0600`; the Pi stores only its hash.
+
+Run a single collection cycle from `backend/`:
 
 ```bash
-cd backend
 export INKPI_API_URL='http://inkpi.local:8080'
 export INKPI_AGENT_NAME='ubuntu-main'
 export INKPI_AGENT_ENROLLMENT_TOKEN='replace-with-a-long-random-value'
 uv run inkpi-host-agent --once
 ```
 
-Subsequent runs reuse the saved agent token. The enrollment token can then be
-removed from the host environment unless registration must be repeated.
+After successful registration, remove the enrollment token from the host
+environment unless re-enrollment is required.
 
-## systemd on Ubuntu
+## systemd installation
 
-Create the protected environment file:
+Create `~/.config/inkpi/host-agent.env` with mode `0600`:
 
-```bash
-mkdir -p ~/.config/inkpi
-cat > ~/.config/inkpi/host-agent.env <<'EOF'
+```text
 INKPI_API_URL=http://inkpi.local:8080
 INKPI_AGENT_NAME=ubuntu-main
 INKPI_AGENT_ENROLLMENT_TOKEN=replace-with-a-long-random-value
-EOF
-chmod 600 ~/.config/inkpi/host-agent.env
-cd /path/to/InkPi
+EINK_GITHUB_API_KEY=replace-with-a-token
+```
+
+Then run from the repository root:
+
+```bash
 sudo bash deploy/install_host_agent.sh
 ```
 
-After the first successful registration, remove
-`INKPI_AGENT_ENROLLMENT_TOKEN` from this file and restart the service.
-
-```bash
-systemctl status inkpi-host-agent.service
-journalctl -u inkpi-host-agent.service -f
-```
+After the first registration, remove `INKPI_AGENT_ENROLLMENT_TOKEN` from the
+file and restart the service.

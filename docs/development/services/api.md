@@ -1,48 +1,74 @@
-# inkpi-api Service
+# `inkpi-api`
 
-`inkpi-api` is the v1.0 application-state boundary introduced by
-[`update.md`](../update.md). It runs on the Raspberry Pi and owns the SQLite
-database used by both InkPi Web and the dedicated eInk renderer.
+`inkpi-api` is the unprivileged Raspberry Pi application service. It owns
+SQLite state, serves the React build, renders complete eInk PNGs, and exposes
+the HTTP contracts consumed by browsers, the display process, and host agents.
 
-## API surface
+## HTTP surface
 
-The current implementation provides:
+| Area | Endpoints |
+|---|---|
+| Health | `GET /api/health` |
+| TODO | `GET/POST /api/todos`, `PATCH/DELETE /api/todos/{id}`, `PUT /api/todos/order` |
+| Display | `GET /api/display/revision`, `GET /api/display/image`, `GET /api/display/context`, `POST /api/display/refresh` |
+| Settings | `GET /api/settings/system`, `GET /api/settings/network`, `PUT /api/settings/network/hotspot` |
+| Agents | `POST /api/agents/register`, `POST /api/agents/{id}/heartbeat`, `POST /api/agents/{id}/reports` |
+| Reports | `GET /api/reports/latest` |
+| Frontend | `GET /`, `/todo`, `/settings`, and `/eink.html` when `frontend/dist/` exists |
 
-- `GET /api/health`
-- `GET /api/todos`
-- `POST /api/todos`
-- `PATCH /api/todos/{id}`
-- `DELETE /api/todos/{id}`
-- `PUT /api/todos/order`
-- `GET /api/display/revision`
-- `GET /api/display/context` (local render-only hotspot facts)
-- `GET /api/display/image` (Playwright-rendered `800x480` PNG)
-- `POST /api/display/refresh` (display-owned refresh telemetry)
-- `GET /api/settings/system`
-- `GET /api/settings/network`
-- `PUT /api/settings/network/hotspot`
-- agent registration, heartbeat, report upload, and latest-report reads
-- the built React application at `/`, `/todo`, and `/settings` when `frontend/dist`
-  exists
-- the fixed React eInk render view at `/eink.html`
+TODO mutations and reordering increment the display revision transactionally.
+Latest-report reads omit expired reports.
 
-Every TODO mutation and reorder increments the persistent display revision in
-the same database transaction. The API never controls GPIO, submits frames, or
-chooses a refresh mode.
+## Authentication boundaries
 
-## Local development
+- Hotspot mutation requires `INKPI_ADMIN_TOKEN` and same-origin validation.
+- Remote host-agent enrollment requires `INKPI_AGENT_ENROLLMENT_TOKEN`.
+- Heartbeat and report upload require the per-agent bearer token returned at
+  registration. Only its hash is persisted.
+- Display telemetry uses `INKPI_DISPLAY_TOKEN` when configured. Without it,
+  telemetry is accepted from loopback only.
+- `/api/display/context` is always loopback-only.
 
-Build the Web application with Bun:
+Read-only health, TODO, report, system, network, revision, and rendered-image
+endpoints are currently unauthenticated on the device network.
 
-```bash
-cd frontend
-bun install --frozen-lockfile
-bun run build
-cd ../backend
-uv run playwright install chromium
-```
+## Persistence
 
-Run the API with an isolated local database:
+The default database is `~/.local/share/inkpi/inkpi.db`. Set
+`INKPI_DATABASE_URL` or pass `--database-url` to override it.
+
+The API persists TODOs, display state, hotspot state, agent identities, token
+hashes, and expiring reports. It never persists hotspot passwords, GitHub
+tokens, admin/display/enrollment tokens, or raw agent bearer tokens.
+
+## PNG renderer
+
+`PlaywrightDisplayRenderer` owns one browser thread and serializes render jobs.
+For each uncached revision it creates an isolated 800×480 context, opens the
+React eInk page, waits for data and fonts, and captures `.eink-display`. The PNG
+is cached by revision and returned with `X-InkPi-Revision` and an ETag.
+
+The renderer generates a complete logical frame. It has no access to SPI/GPIO
+and cannot choose a refresh mode.
+
+## Runtime configuration
+
+| Variable | Purpose |
+|---|---|
+| `INKPI_DATABASE_URL` | SQLite or SQLAlchemy database URL |
+| `INKPI_RENDER_BASE_URL` | Loopback URL used by Playwright |
+| `INKPI_NETWORK_HELPER_SOCKET` | Protected helper socket path |
+| `INKPI_ADMIN_TOKEN` | Hotspot-mutation credential |
+| `INKPI_DISPLAY_TOKEN` | Display telemetry credential |
+| `INKPI_AGENT_ENROLLMENT_TOKEN` | Remote agent enrollment credential |
+| `INKPI_HOTSPOT_PASSWORD` | Optional startup password for local QR rendering |
+
+The Pi systemd unit reads protected values from
+`~/.config/inkpi/api.env`.
+
+## Local run
+
+Build `frontend/` first, then run from `backend/`:
 
 ```bash
 mkdir -p ../tmp
@@ -52,38 +78,5 @@ uv run inkpi-api \
   --database-url sqlite+pysqlite:///../tmp/inkpi.db
 ```
 
-The default persistent database is
-`~/.local/share/inkpi/inkpi.db`. Override it with `INKPI_DATABASE_URL` or the
-`--database-url` option.
-
-For frontend hot reload, run `bun run dev` in `frontend/`; Vite proxies `/api` to
-`127.0.0.1:8080`.
-
-The API keeps a headless Chromium process behind a dedicated renderer thread,
-creates an isolated `800x480` page per revision, waits for React data and fonts,
-then screenshots only `.eink-display`. PNG bytes are cached by revision.
-
-## Network and secret boundary
-
-Settings enables, disables, and replaces the Wi-Fi hotspot through the existing
-allowlisted privileged helper. `inkpi-api` remains unprivileged. Passwords are
-accepted for the current mutation, sent over the permission-restricted helper
-socket, passed to `nmcli --ask` through stdin, and omitted from SQLite,
-operation history, API responses, command arguments, and logs. Mutations
-require `INKPI_ADMIN_TOKEN` and reject cross-origin requests.
-
-Only enable state, SSID, and update time persist. Connected-client count is a
-read-only fact from reachable `wlan0` ARP neighbors. The normal settings API
-never returns a password. When a hotspot is active, the local-only display
-context may expose an ephemeral standard Wi-Fi QR payload to the local Chromium
-renderer. Its password comes from the current mutation or
-`INKPI_HOTSPOT_PASSWORD`; it is never written to SQLite. Remote clients cannot
-read this render-only endpoint, while the resulting QR remains visible in the
-rendered eInk image by design.
-
-Display telemetry records the last accepted refresh time. It never selects or
-changes refresh mode; that remains an `inkpi-display` decision.
-
-`inkpi-display` polls revision, debounces changes, downloads the PNG, and
-submits the complete frame to the longevity-first `DisplayEngine`. API and
-React code cannot select refresh modes.
+OpenAPI is available through FastAPI's default documentation endpoints while
+the service is running.
