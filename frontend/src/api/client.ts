@@ -52,10 +52,15 @@ export interface AuthSession {
 
 let csrfToken: string | null = null
 
+export function apiPath(path: string, pathname = window.location.pathname): string {
+  const base = pathname === '/inkpi' || pathname.startsWith('/inkpi/') ? '/inkpi' : ''
+  return `${base}${path}`
+}
+
 type TodoChanges = Partial<Pick<Todo, 'title' | 'completed' | 'display_on_eink'>>
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(apiPath(path), {
     ...init,
     headers: init?.body ? { 'Content-Type': 'application/json', ...init.headers } : init?.headers,
   })

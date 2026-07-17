@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
-import { api, type DisplayRevision, type HotspotSettings, type LatestReport, type SystemInfo, type Todo } from '../api/client'
+import { api, apiPath, type DisplayRevision, type HotspotSettings, type LatestReport, type SystemInfo, type Todo } from '../api/client'
+import { appPath, routeFromPathname, type AppRoute } from './basePath'
 
-type Route = '/' | '/todo' | '/settings'
+type Route = AppRoute
 
 const routes: Array<{ path: Route; label: string }> = [
   { path: '/', label: 'Overview' },
@@ -11,9 +12,7 @@ const routes: Array<{ path: Route; label: string }> = [
 ]
 
 function currentRoute(): Route {
-  return routes.some(({ path }) => path === window.location.pathname)
-    ? window.location.pathname as Route
-    : '/'
+  return routeFromPathname(window.location.pathname)
 }
 
 export function App() {
@@ -31,7 +30,7 @@ export function App() {
   }, [])
 
   const navigate = (next: Route) => {
-    window.history.pushState({}, '', next)
+    window.history.pushState({}, '', appPath(next))
     setRoute(next)
   }
 
@@ -180,7 +179,7 @@ function OverviewPage() {
         <div className="preview-frame">
           {revision ? (
             <img
-              src={`/api/display/image?revision=${revision.revision}`}
+              src={`${apiPath('/api/display/image')}?revision=${revision.revision}`}
               alt="Current 800 by 480 eInk output"
             />
           ) : (
