@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 
@@ -9,10 +11,10 @@ from inkpi.api import create_app
 
 class FakeDisplayRenderer:
     def __init__(self) -> None:
-        self.revisions: list[int] = []
+        self.revisions: list[str] = []
         self.closed = False
 
-    def render_png(self, revision: int) -> bytes:
+    def render_png(self, revision: str) -> bytes:
         self.revisions.append(revision)
         return b"fake-png"
 
@@ -29,7 +31,8 @@ def test_todo_crud_reordering_and_display_revision(tmp_path: Path) -> None:
 
     with TestClient(app) as client:
         assert client.get("/api/health").json() == {"status": "ok"}
-        assert client.get("/api/display/revision").json()["revision"] == 0
+        initial_revision = client.get("/api/display/revision").json()["revision"]
+        UUID(initial_revision)
 
         first_response = client.post(
             "/api/todos",
@@ -45,7 +48,8 @@ def test_todo_crud_reordering_and_display_revision(tmp_path: Path) -> None:
             json={"title": "Build web UI", "display_on_eink": False},
         ).json()
         assert second["sort_order"] == 1
-        assert client.get("/api/display/revision").json()["revision"] == 2
+        second_revision = client.get("/api/display/revision").json()["revision"]
+        assert second_revision != initial_revision
 
         updated_response = client.patch(f"/api/todos/{first['id']}", json={"completed": True})
         assert updated_response.status_code == 200
@@ -60,7 +64,7 @@ def test_todo_crud_reordering_and_display_revision(tmp_path: Path) -> None:
         remaining = client.get("/api/todos").json()
         assert [item["id"] for item in remaining] == [first["id"]]
         assert remaining[0]["sort_order"] == 0
-        assert client.get("/api/display/revision").json()["revision"] == 5
+        assert client.get("/api/display/revision").json()["revision"] != second_revision
 
 
 def test_todo_api_validates_payloads_and_order(tmp_path: Path) -> None:
@@ -85,7 +89,25 @@ def test_todos_persist_across_app_restarts(tmp_path: Path) -> None:
     with TestClient(create_app(database_url)) as client:
         todos = client.get("/api/todos").json()
         assert [todo["title"] for todo in todos] == ["Persist me"]
-        assert client.get("/api/display/revision").json()["revision"] == 1
+        UUID(client.get("/api/display/revision").json()["revision"])
+
+
+def test_legacy_integer_revision_is_migrated_to_uuid(tmp_path: Path) -> None:
+    database_path = tmp_path / "legacy-revision.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "CREATE TABLE display_state ("
+            "id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, updated_at DATETIME NOT NULL, "
+            "last_refresh DATETIME, last_full_refresh DATETIME, refresh_count INTEGER NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO display_state VALUES (1, 9223372036854775807, CURRENT_TIMESTAMP, NULL, NULL, 0)"
+        )
+
+    with TestClient(create_app(_database_url(database_path))) as client:
+        revision = client.get("/api/display/revision").json()["revision"]
+        UUID(revision)
+        assert revision != "9223372036854775807"
 
 
 def test_api_serves_built_web_routes_when_available(tmp_path: Path) -> None:
@@ -115,13 +137,14 @@ def test_display_image_uses_current_revision_and_closes_renderer(tmp_path: Path)
 
     with TestClient(app) as client:
         client.post("/api/todos", json={"title": "Visible item"})
+        revision = client.get("/api/display/revision").json()["revision"]
         response = client.get("/api/display/image")
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/png"
-        assert response.headers["x-inkpi-revision"] == "1"
-        assert response.headers["etag"] == '"inkpi-1"'
+        assert response.headers["x-inkpi-revision"] == revision
+        assert response.headers["etag"] == f'"inkpi-{revision}"'
         assert response.content == b"fake-png"
-        assert renderer.revisions == [1]
+        assert renderer.revisions == [revision]
 
     assert renderer.closed is True
 
@@ -139,20 +162,21 @@ def test_display_refresh_telemetry_updates_read_only_system_info(
 
     with TestClient(app) as client:
         client.post("/api/todos", json={"title": "Visible item"})
+        revision = client.get("/api/display/revision").json()["revision"]
         denied = client.post(
             "/api/display/refresh",
-            json={"revision": 1, "action": "full", "accepted": True},
+            json={"revision": revision, "action": "full", "accepted": True},
         )
         assert denied.status_code == 401
 
         reported = client.post(
             "/api/display/refresh",
             headers={"Authorization": "Bearer display-secret"},
-            json={"revision": 1, "action": "full", "accepted": True},
+            json={"revision": revision, "action": "full", "accepted": True},
         )
         assert reported.status_code == 204
         system = client.get("/api/settings/system").json()
-        assert system["display_revision"] == 1
+        assert system["display_revision"] == revision
         assert system["last_refresh"] is not None
         assert system["uptime_seconds"] >= 0
         assert system["firmware_version"]
@@ -160,7 +184,7 @@ def test_display_refresh_telemetry_updates_read_only_system_info(
         stale = client.post(
             "/api/display/refresh",
             headers={"Authorization": "Bearer display-secret"},
-            json={"revision": 0, "action": "partial", "accepted": True},
+            json={"revision": str(UUID(int=0)), "action": "partial", "accepted": True},
         )
         assert stale.status_code == 409
 
@@ -212,7 +236,7 @@ def test_agent_registration_heartbeat_and_reports(tmp_path: Path, monkeypatch) -
         )
         assert report.status_code == 201
         assert report.json()["type"] == "codex"
-        assert client.get("/api/display/revision").json()["revision"] == 1
+        UUID(client.get("/api/display/revision").json()["revision"])
 
         latest = client.get("/api/reports/latest").json()
         assert len(latest) == 1

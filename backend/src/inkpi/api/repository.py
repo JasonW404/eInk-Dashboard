@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 import hashlib
+from uuid import uuid4
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
@@ -18,6 +19,10 @@ def initialize_schema(session_factory: sessionmaker[Session]) -> None:
     with session_factory.begin() as session:
         if session.get(DisplayState, 1) is None:
             session.add(DisplayState(id=1))
+        else:
+            state = get_display_state(session)
+            if not isinstance(state.revision, str) or len(state.revision) != 36:
+                state.revision = str(uuid4())
         if session.get(HotspotSettings, 1) is None:
             session.add(HotspotSettings(id=1))
 
@@ -83,7 +88,7 @@ def bump_revision(session: Session) -> None:
     session.execute(
         update(DisplayState)
         .where(DisplayState.id == 1)
-        .values(revision=DisplayState.revision + 1, updated_at=utc_now())
+        .values(revision=str(uuid4()), updated_at=utc_now())
     )
 
 

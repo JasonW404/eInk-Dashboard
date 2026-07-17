@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -34,7 +35,7 @@ class DisplayState(Base):
     __tablename__ = "display_state"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    revision: Mapped[str] = mapped_column(String(36), nullable=False, default=lambda: str(uuid4()))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     last_refresh: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_full_refresh: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

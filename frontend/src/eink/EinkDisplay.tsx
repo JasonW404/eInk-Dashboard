@@ -34,7 +34,7 @@ export function EinkDisplay() {
     return () => { active = false }
   }, [])
 
-  const visibleTodos = data.todos.filter((todo) => todo.display_on_eink).slice(0, 8)
+  const visibleTodos = data.todos.filter((todo) => todo.display_on_eink).slice(0, 6)
   const codex = data.reports.find((report) => report.type === 'codex')?.payload
   const github = data.reports.find((report) => report.type === 'github')?.payload
   const weeklyUsed = codexWeeklyUsed(codex)
@@ -52,8 +52,7 @@ export function EinkDisplay() {
         </div>
         <time className="eink-header-date">{today}</time>
         <div className="eink-header-meta">
-          <span>REV #{data.revision?.revision ?? '—'}</span>
-          <span>{data.error ? 'DATA OFFLINE' : 'SYSTEM ONLINE'}</span>
+          <span>{data.error ? 'OFFLINE' : 'ONLINE'} | {data.revision?.revision.slice(0, 8).toUpperCase() ?? '—'}</span>
         </div>
       </header>
 
@@ -78,14 +77,16 @@ export function EinkDisplay() {
             <div className="eink-meter"><span style={{ width: `${weeklyUsed ?? 0}%` }} /></div>
             <div className="eink-codex-copy">
               <p className="eink-placeholder">
-                {weeklyUsed === null ? 'AWAITING HOST AGENT' : `${weeklyUsed}% USED · ${String(codex?.plan ?? '—').toUpperCase()}`}
+                {weeklyUsed === null ? 'AWAITING HOST AGENT' : `${String(codex?.plan ?? 'PLUS').toUpperCase()} · ${weeklyUsed}% · RESET @ ${reset ?? '—'}`}
               </p>
-              {reset && <p className="eink-reset">RESET {reset}</p>}
             </div>
           </EinkBlock>
           <EinkBlock title="GITHUB" subtitle="ALL REPOSITORIES">
-            <div className="eink-pair"><b>{commits ?? '—'}<small>COMMITS</small></b><b>{prs ?? '—'}<small>PRS</small></b></div>
-            <ContributionCalendar payload={github} />
+            <div className="eink-github-content">
+              <div className="eink-pair"><b>{commits ?? '—'}<small>COMMITS</small></b><b>{prs ?? '—'}<small>PRS</small></b></div>
+              <span className="eink-github-divider" aria-hidden="true" />
+              <ContributionCalendar payload={github} />
+            </div>
           </EinkBlock>
           <EinkBlock title="SYSTEM" subtitle="NETWORK ACCESS">
             <HotspotAccess context={data.context} />
@@ -98,17 +99,16 @@ export function EinkDisplay() {
 
 function HotspotAccess({ context }: { context: DisplayContext | null }) {
   if (!context?.hotspot_enabled) {
-    return <p className="eink-system-idle">HOTSPOT OFF</p>
+    return <div className="eink-system-idle"><span>HOTSPOT · DISABLED</span></div>
   }
   return (
     <div className="eink-hotspot">
       <div>
-        <span>HOTSPOT SSID</span>
+        <span>HOTSPOT · ENABLED</span>
         <strong>{context.hotspot_ssid ?? 'INKPI'}</strong>
-        <small>{context.wifi_qr_payload ? 'SCAN TO JOIN' : 'QR UNAVAILABLE'}</small>
       </div>
       {context.wifi_qr_payload && (
-        <QRCodeSVG value={context.wifi_qr_payload} size={78} level="M" marginSize={0} />
+        <QRCodeSVG value={context.wifi_qr_payload} size={68} level="M" marginSize={0} />
       )}
     </div>
   )
@@ -117,20 +117,22 @@ function HotspotAccess({ context }: { context: DisplayContext | null }) {
 function ContributionCalendar({ payload }: { payload: Record<string, unknown> | undefined }) {
   const counts = contributionCounts(payload)
   const today = startOfLocalDay(new Date())
-  const days = Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(today)
-    day.setDate(today.getDate() - (6 - index))
-    const key = localDateKey(day)
-    return { day, count: counts.get(key) ?? 0, today: index === 6 }
-  })
+  const first = new Date(today.getFullYear(), today.getMonth(), 1)
+  const last = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+  const cells: Array<{ day: Date | null; count: number; today: boolean }> = []
+  for (let index = 0; index < first.getDay(); index += 1) cells.push({ day: null, count: 0, today: false })
+  for (let date = 1; date <= last.getDate(); date += 1) {
+    const day = new Date(today.getFullYear(), today.getMonth(), date)
+    cells.push({ day, count: counts.get(localDateKey(day)) ?? 0, today: date === today.getDate() })
+  }
   return (
-    <div className="eink-calendar" aria-label="Last seven days of GitHub contributions">
-      {days.map(({ day, count, today: isToday }) => (
-        <div className={isToday ? 'today' : ''} key={localDateKey(day)}>
-          <span>{day.toLocaleDateString('en-US', { weekday: 'narrow' })}</span>
-          <i className={count === 0 ? 'empty' : count <= 3 ? 'hatched' : 'solid'} title={`${count} contributions`} />
-        </div>
-      ))}
+    <div className="eink-calendar-wrap" aria-label="Current month GitHub contributions">
+      <div className="eink-calendar-weekdays">{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div>
+      <div className="eink-calendar">
+        {cells.map(({ day, count, today: isToday }, index) => (
+          day ? <i className={`${count === 0 ? 'empty' : count <= 3 ? 'hatched' : 'solid'}${isToday ? ' today' : ''}`} title={`${count} contributions`} key={localDateKey(day)} /> : <i className="blank" key={`blank-${index}`} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -183,9 +185,10 @@ function codexWeeklyReset(payload: Record<string, unknown> | undefined): string 
   if (typeof raw !== 'string') return null
   const reset = new Date(raw)
   if (Number.isNaN(reset.getTime())) return null
-  const remainingDays = Math.max(0, Math.floor((reset.getTime() - Date.now()) / 86_400_000))
+  const month = String(reset.getMonth() + 1).padStart(2, '0')
+  const day = String(reset.getDate()).padStart(2, '0')
   const clock = reset.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
-  return `${remainingDays} ${remainingDays === 1 ? 'DAY' : 'DAYS'}, ${clock}`
+  return `${month}/${day} ${clock}`
 }
 
 function formatHeaderDate(value: Date): string {

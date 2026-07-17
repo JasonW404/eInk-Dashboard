@@ -54,12 +54,12 @@ class TodoOrder(BaseModel):
 
 
 class DisplayRevision(BaseModel):
-    revision: int
+    revision: str
     updated_at: datetime
 
 
 class DisplayRefreshReport(BaseModel):
-    revision: int = Field(ge=0)
+    revision: str = Field(min_length=36, max_length=36)
     action: str = Field(min_length=1, max_length=20)
     accepted: bool
 
@@ -74,7 +74,7 @@ class SystemInfoRead(BaseModel):
     device_name: str
     firmware_version: str
     uptime_seconds: float
-    display_revision: int
+    display_revision: str
     last_refresh: datetime | None
 
 

@@ -13,14 +13,14 @@ class DisplayRenderError(RuntimeError):
 
 
 class DisplayImageRenderer(Protocol):
-    def render_png(self, revision: int) -> bytes: ...
+    def render_png(self, revision: str) -> bytes: ...
 
     def close(self) -> None: ...
 
 
 @dataclass
 class _RenderJob:
-    revision: int
+    revision: str
     done: threading.Event = field(default_factory=threading.Event)
     png: bytes | None = None
     error: BaseException | None = None
@@ -36,10 +36,10 @@ class PlaywrightDisplayRenderer:
         self._thread: threading.Thread | None = None
         self._start_lock = threading.Lock()
         self._render_lock = threading.Lock()
-        self._cached_revision: int | None = None
+        self._cached_revision: str | None = None
         self._cached_png: bytes | None = None
 
-    def render_png(self, revision: int) -> bytes:
+    def render_png(self, revision: str) -> bytes:
         with self._render_lock:
             if revision == self._cached_revision and self._cached_png is not None:
                 return self._cached_png

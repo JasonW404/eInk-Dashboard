@@ -9,7 +9,7 @@ export interface Todo {
 }
 
 export interface DisplayRevision {
-  revision: number
+  revision: string
   updated_at: string
 }
 
@@ -41,7 +41,7 @@ export interface SystemInfo {
   device_name: string
   firmware_version: string
   uptime_seconds: number
-  display_revision: number
+  display_revision: string
   last_refresh: string | null
 }
 

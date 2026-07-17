@@ -19,11 +19,11 @@ class DisplayFrameSubmitter(Protocol):
 
 
 class DisplayApi(Protocol):
-    def get_revision(self) -> int: ...
+    def get_revision(self) -> str: ...
 
-    def get_image(self) -> tuple[int, bytes]: ...
+    def get_image(self) -> tuple[str, bytes]: ...
 
-    def report_refresh(self, revision: int, result: DisplayResult) -> None: ...
+    def report_refresh(self, revision: str, result: DisplayResult) -> None: ...
 
 
 class HttpDisplayApi:
@@ -41,24 +41,24 @@ class HttpDisplayApi:
         self._session = requests.Session()
         self._display_token = display_token
 
-    def get_revision(self) -> int:
+    def get_revision(self) -> str:
         response = self._session.get(
             f"{self._base_url}/api/display/revision",
             timeout=self._timeout_seconds,
         )
         response.raise_for_status()
-        return int(response.json()["revision"])
+        return str(response.json()["revision"])
 
-    def get_image(self) -> tuple[int, bytes]:
+    def get_image(self) -> tuple[str, bytes]:
         response = self._session.get(
             f"{self._base_url}/api/display/image",
             timeout=self._timeout_seconds,
         )
         response.raise_for_status()
-        revision = int(response.headers["X-InkPi-Revision"])
+        revision = response.headers["X-InkPi-Revision"]
         return revision, response.content
 
-    def report_refresh(self, revision: int, result: DisplayResult) -> None:
+    def report_refresh(self, revision: str, result: DisplayResult) -> None:
         headers = {"Authorization": f"Bearer {self._display_token}"} if self._display_token else None
         response = self._session.post(
             f"{self._base_url}/api/display/refresh",
@@ -96,12 +96,12 @@ class DisplayPullLoop:
         self._logger = logging.getLogger(self.__class__.__name__)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._last_submitted_revision: int | None = None
-        self._pending_revision: int | None = None
+        self._last_submitted_revision: str | None = None
+        self._pending_revision: str | None = None
         self._pending_since: float | None = None
 
     @property
-    def last_submitted_revision(self) -> int | None:
+    def last_submitted_revision(self) -> str | None:
         return self._last_submitted_revision
 
     def start(self) -> None:
