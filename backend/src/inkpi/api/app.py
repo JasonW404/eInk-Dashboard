@@ -50,6 +50,7 @@ from inkpi.api.schemas import (
     SystemInfoRead,
     TodoCreate,
     TodoOrder,
+    TodoDisplaySettings,
     TodoRead,
     TodoUpdate,
     PageOrder,
@@ -200,6 +201,21 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 
+    @app.get("/api/settings/todos/display", response_model=TodoDisplaySettings)
+    def todo_display_settings(session: SessionDependency) -> TodoDisplaySettings:
+        state = repository.get_display_state(session)
+        return TodoDisplaySettings(show_completed=state.todo_show_completed, sort=state.todo_sort)
+
+    @app.put("/api/settings/todos/display", response_model=TodoDisplaySettings)
+    def update_todo_display_settings(
+        payload: TodoDisplaySettings, session: SessionDependency
+    ) -> TodoDisplaySettings:
+        with session.begin():
+            state = repository.update_todo_display_settings(
+                session, show_completed=payload.show_completed, sort=payload.sort
+            )
+        return TodoDisplaySettings(show_completed=state.todo_show_completed, sort=state.todo_sort)
+
     @app.get("/api/display/revision", response_model=DisplayRevision)
     def display_revision(session: SessionDependency) -> object:
         state = repository.get_display_state(session)
@@ -285,6 +301,16 @@ def create_app(
                 "X-InkPi-Revision": str(revision),
             },
         )
+
+    @app.get("/api/display/dashboard-image", response_class=Response)
+    def dashboard_image(session: SessionDependency) -> Response:
+        """Render the built-in dashboard regardless of the active playlist item."""
+        revision = repository.get_display_state(session).revision
+        try:
+            png = renderer.render_png(revision)
+        except DisplayRenderError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        return Response(content=png, media_type="image/png", headers={"Cache-Control": "private, max-age=60"})
 
     @app.get("/api/settings/network", response_model=HotspotRead)
     def network_settings(session: SessionDependency) -> HotspotRead:
@@ -430,6 +456,16 @@ def create_app(
         name = Path(x_file_name or "Photo").name[:255] or "Photo"
         with session.begin():
             return repository.create_page(session, name=name, file_name=file_name)
+
+    @app.get("/api/pages/{page_id}/image", response_class=FileResponse)
+    def page_image(page_id: int, session: SessionDependency) -> FileResponse:
+        page = repository.get_page(session, page_id)
+        if page is None:
+            raise HTTPException(status_code=404, detail="page not found")
+        image_path = upload_root / page.file_name
+        if not image_path.is_file():
+            raise HTTPException(status_code=404, detail="page image is missing")
+        return FileResponse(image_path, media_type="image/png", headers={"Cache-Control": "private, max-age=60"})
 
     @app.patch("/api/pages/{page_id}", response_model=PageRead)
     def update_page(

@@ -28,6 +28,14 @@ def initialize_schema(session_factory: sessionmaker[Session]) -> None:
             session.connection().exec_driver_sql(
                 "ALTER TABLE display_state ADD COLUMN dashboard_interval_seconds INTEGER NOT NULL DEFAULT 60"
             )
+        if display_columns and "todo_show_completed" not in display_columns:
+            session.connection().exec_driver_sql(
+                "ALTER TABLE display_state ADD COLUMN todo_show_completed BOOLEAN NOT NULL DEFAULT 1"
+            )
+        if display_columns and "todo_sort" not in display_columns:
+            session.connection().exec_driver_sql(
+                "ALTER TABLE display_state ADD COLUMN todo_sort VARCHAR(24) NOT NULL DEFAULT 'manual'"
+            )
         hotspot_columns = {
             row[1] for row in session.connection().exec_driver_sql("PRAGMA table_info(hotspot_settings)")
         }
@@ -124,6 +132,18 @@ def record_display_refresh(
         if action == "full":
             state.last_full_refresh = now
         session.flush()
+    return state
+
+
+def update_todo_display_settings(
+    session: Session, *, show_completed: bool, sort: str
+) -> DisplayState:
+    state = get_display_state(session)
+    state.todo_show_completed = show_completed
+    state.todo_sort = sort
+    state.updated_at = utc_now()
+    session.flush()
+    bump_revision(session)
     return state
 
 

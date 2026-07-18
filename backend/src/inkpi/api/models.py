@@ -42,6 +42,8 @@ class DisplayState(Base):
     refresh_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     dashboard_sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     dashboard_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    todo_show_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    todo_sort: Mapped[str] = mapped_column(String(24), nullable=False, default="manual")
 
 
 class HotspotSettings(Base):

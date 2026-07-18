@@ -53,6 +53,11 @@ class TodoOrder(BaseModel):
     ordered_ids: list[int] = Field(min_length=1)
 
 
+class TodoDisplaySettings(BaseModel):
+    show_completed: bool = True
+    sort: str = Field(default="manual", pattern="^(manual|created_asc|created_desc|completed_asc|completed_desc)$")
+
+
 class DisplayRevision(BaseModel):
     revision: str
     updated_at: datetime

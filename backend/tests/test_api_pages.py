@@ -36,6 +36,9 @@ def test_photo_pages_upload_update_reorder_and_delete(tmp_path: Path, monkeypatc
         assert first.status_code == 201
         assert second.status_code == 201
         first_id, second_id = first.json()["id"], second.json()["id"]
+        preview = client.get(f"/api/pages/{first_id}/image")
+        assert preview.status_code == 200
+        assert preview.headers["content-type"] == "image/png"
         stored = list((tmp_path / "uploads").glob("*.png"))
         assert len(stored) == 2
         with Image.open(stored[0]) as normalized:

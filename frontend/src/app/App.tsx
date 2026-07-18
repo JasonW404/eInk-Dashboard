@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
-import { api, apiPath, type DisplayPage, type DisplayRevision, type HotspotSecurity, type HotspotSettings, type LatestReport, type SystemInfo, type Todo } from '../api/client'
+import Cropper from 'cropperjs'
+import 'cropperjs/dist/cropper.css'
+import { api, apiPath, type DisplayPage, type DisplayRevision, type HotspotSecurity, type HotspotSettings, type LatestReport, type SystemInfo, type Todo, type TodoDisplaySettings, type TodoSort } from '../api/client'
 import { appPath, routeFromPathname, type AppRoute } from './basePath'
 
 type Route = AppRoute
@@ -223,8 +225,11 @@ function TodoPage() {
   const [todos, setTodos] = useState<Todo[]>([])
   const [title, setTitle] = useState('')
   const [error, setError] = useState('')
+  const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all')
+  const [sort, setSort] = useState<TodoSort>('manual')
+  const [displaySettings, setDisplaySettings] = useState<TodoDisplaySettings>({ show_completed: true, sort: 'manual' })
 
-  const load = () => api.todos().then(setTodos).catch((reason: Error) => setError(reason.message))
+  const load = () => Promise.all([api.todos(), api.todoDisplaySettings()]).then(([items, settings]) => { setTodos(items); setDisplaySettings(settings) }).catch((reason: Error) => setError(reason.message))
   useEffect(() => { void load() }, [])
 
   const mutate = async (operation: () => Promise<unknown>) => {
@@ -252,6 +257,12 @@ function TodoPage() {
     void mutate(() => api.reorderTodos(reordered.map((todo) => todo.id)))
   }
 
+  const visibleTodos = sortTodos(todos.filter((todo) => filter === 'all' || (filter === 'completed' ? todo.completed : !todo.completed)), sort)
+  const saveDisplaySettings = (next: TodoDisplaySettings) => {
+    setDisplaySettings(next)
+    void mutate(() => api.updateTodoDisplaySettings(next))
+  }
+
   return (
     <Page title="Todo List" eyebrow="PERSONAL QUEUE">
       <div className="todo-composer">
@@ -260,10 +271,15 @@ function TodoPage() {
         }} placeholder="What needs to happen?" aria-label="New todo title" />
         <button className="primary-button" onClick={() => void addTodo()}>+ New Todo</button>
       </div>
+      <section className="todo-view-toolbar" aria-label="Todo view controls">
+        <div className="todo-filter"><span>FILTER</span><div>{(['all', 'active', 'completed'] as const).map((value) => <button className={filter === value ? 'active' : ''} key={value} onClick={() => setFilter(value)}>{value === 'all' ? `All ${todos.length}` : value === 'active' ? `Active ${todos.filter((todo) => !todo.completed).length}` : `Done ${todos.filter((todo) => todo.completed).length}`}</button>)}</div></div>
+        <label className="todo-sort">SORT<select value={sort} onChange={(event) => setSort(event.target.value as TodoSort)}><TodoSortOptions includeManual /></select></label>
+        <div className="eink-todo-settings"><span>ON EINK</span><label><input type="checkbox" checked={displaySettings.show_completed} onChange={(event) => saveDisplaySettings({ ...displaySettings, show_completed: event.target.checked })} /> Show completed</label><select aria-label="eInk todo order" value={displaySettings.sort} onChange={(event) => saveDisplaySettings({ ...displaySettings, sort: event.target.value as TodoSort })}><TodoSortOptions includeManual /></select></div>
+      </section>
       {error && <p className="error-message">{error}</p>}
       <section className="todo-list">
-        {todos.length === 0 && <div className="empty-state">NO TODOS YET</div>}
-        {todos.map((todo, index) => (
+        {visibleTodos.length === 0 && <div className="empty-state">{todos.length === 0 ? 'NO TODOS YET' : 'NO TODOS MATCH THIS FILTER'}</div>}
+        {visibleTodos.map((todo, index) => (
           <article className="todo-item" key={todo.id}>
             <button className="check-button" onClick={() => void mutate(() => api.updateTodo(todo.id, { completed: !todo.completed }))}>
               {todo.completed ? '■' : '□'}
@@ -277,8 +293,7 @@ function TodoPage() {
               SHOW ON INKPI
             </label>
             <div className="todo-actions">
-              <button disabled={index === 0} onClick={() => move(index, -1)}>↑</button>
-              <button disabled={index === todos.length - 1} onClick={() => move(index, 1)}>↓</button>
+              {sort === 'manual' && filter === 'all' && <><button disabled={index === 0} onClick={() => move(index, -1)}>↑</button><button disabled={index === todos.length - 1} onClick={() => move(index, 1)}>↓</button></>}
               <button onClick={() => {
                 const next = window.prompt('Edit todo', todo.title)?.trim()
                 if (next && next !== todo.title) void mutate(() => api.updateTodo(todo.id, { title: next }))
@@ -290,6 +305,24 @@ function TodoPage() {
       </section>
     </Page>
   )
+}
+
+function TodoSortOptions({ includeManual }: { includeManual?: boolean }) {
+  return <>{includeManual && <option value="manual">Custom order</option>}<option value="created_desc">Newest first</option><option value="created_asc">Oldest first</option><option value="completed_asc">Active first</option><option value="completed_desc">Completed first</option></>
+}
+
+function sortTodos(todos: Todo[], sort: TodoSort): Todo[] {
+  return [...todos].sort((left, right) => {
+    if (sort === 'created_asc' || sort === 'created_desc') {
+      const result = new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+      return (sort === 'created_desc' ? -result : result) || left.sort_order - right.sort_order
+    }
+    if (sort === 'completed_asc' || sort === 'completed_desc') {
+      const result = Number(left.completed) - Number(right.completed)
+      return (sort === 'completed_desc' ? -result : result) || left.sort_order - right.sort_order
+    }
+    return left.sort_order - right.sort_order
+  })
 }
 
 function PagesPage() {
@@ -322,11 +355,14 @@ function PagesPage() {
     <div className="pages-list">
       {pages.length === 0 && <div className="empty-state">UPLOAD PHOTOS TO EXTEND THE DISPLAY LOOP</div>}
       {pages.map((page, index) => <article className="page-row" key={page.id}>
-        <div className="page-order"><button disabled={busy || index === 0} onClick={() => move(index, -1)}>↑</button><button disabled={busy || index === pages.length - 1} onClick={() => move(index, 1)}>↓</button></div>
-        <div className="page-copy"><strong>{page.name}</strong><span>{page.kind === 'dashboard' ? 'LIVE INKPI OVERVIEW' : `PHOTO PAGE · POSITION ${index + 1}`}</span></div>
-        <label>Interval<select value={page.interval_seconds} disabled={busy} onChange={(event) => void mutate(() => api.updatePage(page.id, { interval_seconds: Number(event.target.value) }))}><option value={30}>30 sec</option><option value={60}>1 min</option><option value={300}>5 min</option><option value={900}>15 min</option><option value={3600}>1 hour</option></select></label>
-        <label className="page-enabled"><input type="checkbox" checked={page.enabled} disabled={busy || page.kind === 'dashboard'} onChange={() => void mutate(() => api.updatePage(page.id, { enabled: !page.enabled }))} /> ACTIVE</label>
-        <button className="delete-page" disabled={busy || page.kind === 'dashboard'} onClick={() => void mutate(() => api.deletePage(page.id))}>{page.kind === 'dashboard' ? 'BUILT IN' : 'DELETE'}</button>
+        <div className="page-thumbnail">{page.kind === 'dashboard'
+          ? <img src={`${apiPath('/api/display/dashboard-image')}?v=${encodeURIComponent(page.updated_at)}`} alt="Dashboard preview" />
+          : <img src={api.pageImage(page.id, page.updated_at)} alt={`Preview of ${page.name}`} />}</div>
+        <div className="page-card-body">
+          <div className="page-copy"><strong>{page.name}</strong><span>{page.kind === 'dashboard' ? 'LIVE INKPI OVERVIEW' : `PHOTO PAGE · POSITION ${index + 1}`}</span></div>
+          <label>Interval<select value={page.interval_seconds} disabled={busy} onChange={(event) => void mutate(() => api.updatePage(page.id, { interval_seconds: Number(event.target.value) }))}><option value={30}>30 sec</option><option value={60}>1 min</option><option value={300}>5 min</option><option value={900}>15 min</option><option value={3600}>1 hour</option></select></label>
+          <div className="page-card-actions"><div className="page-order"><button disabled={busy || index === 0} onClick={() => move(index, -1)}>↑</button><button disabled={busy || index === pages.length - 1} onClick={() => move(index, 1)}>↓</button></div><label className="page-enabled"><input type="checkbox" checked={page.enabled} disabled={busy || page.kind === 'dashboard'} onChange={() => void mutate(() => api.updatePage(page.id, { enabled: !page.enabled }))} /> ACTIVE</label><button className="delete-page" disabled={busy || page.kind === 'dashboard'} onClick={() => void mutate(() => api.deletePage(page.id))}>{page.kind === 'dashboard' ? 'BUILT IN' : 'DELETE'}</button></div>
+        </div>
       </article>)}
     </div>
     <p className="muted">Active pages cycle in this order. Photos are cropped to the 800 × 480 display ratio without stretching; each page's interval controls when the physical display advances.</p>
@@ -339,33 +375,45 @@ function PagesPage() {
 }
 
 function ImageCropDialog({ file, queueLength, onCancel, onConfirm }: { file: File; queueLength: number; onCancel: () => void; onConfirm: (file: File) => Promise<boolean> }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const dragRef = useRef<{ x: number; y: number; positionX: number; positionY: number } | null>(null)
-  const [image, setImage] = useState<HTMLImageElement | null>(null)
-  const [positionX, setPositionX] = useState(50)
-  const [positionY, setPositionY] = useState(50)
-  const [zoom, setZoom] = useState(1)
+  const imageRef = useRef<HTMLImageElement>(null)
+  const previewRef = useRef<HTMLCanvasElement>(null)
+  const cropperRef = useRef<Cropper | null>(null)
+  const frameRef = useRef<number | null>(null)
+  const [sourceUrl, setSourceUrl] = useState('')
+  const [tone, setTone] = useState(0)
+  const [detail, setDetail] = useState(50)
+  const [ready, setReady] = useState(false)
   const [processing, setProcessing] = useState(false)
 
   useEffect(() => {
-    setPositionX(50)
-    setPositionY(50)
-    setZoom(1)
-    setImage(null)
     const url = URL.createObjectURL(file)
-    const nextImage = new Image()
-    nextImage.onload = () => setImage(nextImage)
-    nextImage.src = url
+    setSourceUrl(url); setTone(0); setDetail(50); setReady(false)
     return () => URL.revokeObjectURL(url)
   }, [file])
 
   useEffect(() => {
-    if (!image || !canvasRef.current) return
-    drawCroppedImage(canvasRef.current, image, positionX / 100, positionY / 100, zoom)
-  }, [image, positionX, positionY, zoom])
+    const image = imageRef.current
+    if (!image || !sourceUrl) return
+    const render = () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+      frameRef.current = requestAnimationFrame(() => renderFourGrayPreview(cropperRef.current, previewRef.current, tone, detail))
+    }
+    const cropper = new Cropper(image, {
+      aspectRatio: 5 / 3, viewMode: 1, dragMode: 'move', autoCropArea: 0.86,
+      responsive: true, restore: false, guides: true, center: true,
+      movable: true, zoomable: true, zoomOnTouch: true, zoomOnWheel: true,
+      wheelZoomRatio: 0.08, cropBoxMovable: true, cropBoxResizable: true,
+      toggleDragModeOnDblclick: false,
+      ready() { setReady(true); render() }, crop: render, zoom: render,
+    })
+    cropperRef.current = cropper
+    return () => { if (frameRef.current !== null) cancelAnimationFrame(frameRef.current); cropper.destroy(); cropperRef.current = null }
+  }, [sourceUrl])
+
+  useEffect(() => { renderFourGrayPreview(cropperRef.current, previewRef.current, tone, detail) }, [tone, detail])
 
   const confirm = () => {
-    const canvas = canvasRef.current
+    const canvas = previewRef.current
     if (!canvas) return
     setProcessing(true)
     canvas.toBlob(async (blob) => {
@@ -379,43 +427,38 @@ function ImageCropDialog({ file, queueLength, onCancel, onConfirm }: { file: Fil
   return <div className="crop-backdrop" role="presentation">
     <section className="crop-dialog" role="dialog" aria-modal="true" aria-labelledby="crop-title">
       <header><div><span className="eyebrow">PHOTO {queueLength > 1 ? `· ${queueLength} REMAINING` : ''}</span><h2 id="crop-title">Crop for InkPi</h2></div><button onClick={onCancel} aria-label="Cancel cropping">×</button></header>
-      <div className="crop-stage"><canvas ref={canvasRef} width={800} height={480} aria-label="Cropped photo preview" onPointerDown={(event) => {
-        event.currentTarget.setPointerCapture(event.pointerId)
-        dragRef.current = { x: event.clientX, y: event.clientY, positionX, positionY }
-      }} onPointerMove={(event) => {
-        const drag = dragRef.current
-        if (!drag) return
-        const bounds = event.currentTarget.getBoundingClientRect()
-        setPositionX(Math.max(0, Math.min(100, drag.positionX - ((event.clientX - drag.x) / bounds.width) * 100)))
-        setPositionY(Math.max(0, Math.min(100, drag.positionY - ((event.clientY - drag.y) / bounds.height) * 100)))
-      }} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }} /></div>
-      <div className="crop-controls">
-        <label>Horizontal position<input type="range" min="0" max="100" value={positionX} onChange={(event) => setPositionX(Number(event.target.value))} /></label>
-        <label>Vertical position<input type="range" min="0" max="100" value={positionY} onChange={(event) => setPositionY(Number(event.target.value))} /></label>
-        <label>Zoom<input type="range" min="1" max="3" step="0.01" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
+      <div className="crop-workspace"><div className="crop-stage"><img ref={imageRef} src={sourceUrl} alt="Source to crop" /></div><div className="gray-preview"><span>FINAL 4-GRAY PREVIEW</span><canvas ref={previewRef} width={800} height={480} /></div></div>
+      <div className="photo-controls">
+        <label><span>Lightness <b>{tone > 0 ? `+${tone}` : tone}</b></span><input type="range" min="-100" max="100" value={tone} onChange={(event) => setTone(Number(event.target.value))} /></label>
+        <label><span>Detail <b>{detail}</b></span><input type="range" min="0" max="100" value={detail} onChange={(event) => setDetail(Number(event.target.value))} /></label>
       </div>
-      <p className="muted">The crop starts centered at the display's 5:3 ratio. Drag the preview or use the controls to adjust it; the image is never stretched.</p>
-      <footer><button onClick={onCancel}>Cancel all</button><button className="primary-button" disabled={!image || processing} onClick={confirm}>{processing ? 'PROCESSING…' : queueLength > 1 ? 'Crop & next' : 'Crop & add page'}</button></footer>
+      <p className="muted">Drag or resize the 5:3 crop box. Move the image, pinch on touch screens, or use the mouse wheel to zoom. Lightness applies highlight-safe gamma correction; Detail combines contrast and restrained ordered dithering.</p>
+      <footer><button onClick={onCancel}>Cancel all</button><button className="primary-button" disabled={!ready || processing} onClick={confirm}>{processing ? 'PROCESSING…' : queueLength > 1 ? 'Crop & next' : 'Crop & add page'}</button></footer>
     </section>
   </div>
 }
 
-function drawCroppedImage(canvas: HTMLCanvasElement, image: HTMLImageElement, positionX: number, positionY: number, zoom: number) {
-  const targetRatio = canvas.width / canvas.height
-  let cropWidth = image.naturalWidth
-  let cropHeight = cropWidth / targetRatio
-  if (cropHeight > image.naturalHeight) {
-    cropHeight = image.naturalHeight
-    cropWidth = cropHeight * targetRatio
-  }
-  cropWidth /= zoom
-  cropHeight /= zoom
-  const sourceX = (image.naturalWidth - cropWidth) * positionX
-  const sourceY = (image.naturalHeight - cropHeight) * positionY
-  const context = canvas.getContext('2d')
+function renderFourGrayPreview(cropper: Cropper | null, output: HTMLCanvasElement | null, tone: number, detail: number) {
+  if (!cropper || !output) return
+  const cropped = cropper.getCroppedCanvas({ width: 800, height: 480, imageSmoothingEnabled: true, imageSmoothingQuality: 'high' })
+  const context = output.getContext('2d', { willReadFrequently: true })
   if (!context) return
-  context.clearRect(0, 0, canvas.width, canvas.height)
-  context.drawImage(image, sourceX, sourceY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height)
+  context.drawImage(cropped, 0, 0, 800, 480)
+  const frame = context.getImageData(0, 0, 800, 480)
+  const gamma = 2 ** (-tone / 100)
+  const contrast = 0.72 + detail * 0.012
+  const dither = 8 + detail * 0.28
+  const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+  for (let pixel = 0; pixel < frame.data.length; pixel += 4) {
+    const index = pixel / 4
+    const luminance = 0.2126 * frame.data[pixel] + 0.7152 * frame.data[pixel + 1] + 0.0722 * frame.data[pixel + 2]
+    const corrected = 255 * ((Math.max(0, Math.min(255, (255 * ((luminance / 255) ** gamma) - 128) * contrast + 128))) / 255)
+    const x = index % 800; const y = Math.floor(index / 800)
+    const offset = ((bayer[(y % 4) * 4 + (x % 4)] - 7.5) / 16) * dither
+    const gray = Math.max(0, Math.min(255, Math.round((corrected + offset) / 85) * 85))
+    frame.data[pixel] = gray; frame.data[pixel + 1] = gray; frame.data[pixel + 2] = gray; frame.data[pixel + 3] = 255
+  }
+  context.putImageData(frame, 0, 0)
 }
 
 function SettingsPage() {

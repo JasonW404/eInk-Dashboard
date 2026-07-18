@@ -61,6 +61,17 @@ dt { color: #666; } dd { margin: 0; font-weight: 700; text-align: right; }
 .preview-meta { display: flex; justify-content: space-between; gap: 20px; margin-top: 14px; color: #666; font-size: 9px; }
 .todo-composer { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-bottom: 24px; }
 .todo-composer input { min-width: 0; border: 1px solid #aaa; padding: 14px; }
+.todo-view-toolbar { display: grid; grid-template-columns: auto minmax(170px, .6fr) minmax(300px, 1fr); align-items: end; gap: 16px; border: 1px solid #d9d9d9; background: #fafafa; padding: 12px; margin-bottom: 14px; }
+.todo-view-toolbar > label, .todo-view-toolbar > div > span { color: #666; font-size: 9px; letter-spacing: .08em; }
+.todo-filter { display: grid; gap: 7px; }
+.todo-filter > div { display: flex; }
+.todo-filter button { border: 1px solid #aaa; border-right: 0; background: #fff; padding: 8px 10px; font-size: 9px; cursor: pointer; }
+.todo-filter button:last-child { border-right: 1px solid #aaa; }
+.todo-filter button.active { background: #000; color: #fff; border-color: #000; }
+.todo-sort { display: grid; gap: 7px; }
+.todo-sort select, .eink-todo-settings select { min-width: 0; border: 1px solid #aaa; background: #fff; padding: 8px; font-size: 10px; }
+.eink-todo-settings { display: grid; grid-template-columns: auto auto minmax(130px, 1fr); align-items: center; gap: 10px; border-left: 1px solid #ccc; padding-left: 16px; }
+.eink-todo-settings label { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 9px; }
 .primary-button { border: 1px solid #000; background: #000; color: #fff; padding: 0 20px; cursor: pointer; }
 .error-message { border-left: 3px solid #7d1515; color: #7d1515; padding: 10px 14px; }
 .todo-list { border-top: 2px solid #000; }
@@ -101,25 +112,34 @@ dt { color: #666; } dd { margin: 0; font-weight: 700; text-align: right; }
 .page-toolbar span, .page-copy span { color: #666; font-size: 9px; }
 .upload-button { background: #000; color: #fff; padding: 11px 15px; font-size: 11px; cursor: pointer; }
 .upload-button input { display: none; }
-.pages-list { border-top: 2px solid #000; }
-.page-row { display: grid; grid-template-columns: auto minmax(160px, 1fr) auto auto auto; align-items: center; gap: 16px; padding: 13px 8px; border-bottom: 1px solid #d9d9d9; }
+.pages-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.page-row { min-width: 0; border: 1px solid #d9d9d9; background: #fff; overflow: hidden; }
+.page-thumbnail { aspect-ratio: 5 / 3; overflow: hidden; border-bottom: 1px solid #d9d9d9; background: #eee; }
+.page-thumbnail img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.page-card-body { display: grid; gap: 12px; padding: 13px; }
 .page-order { display: flex; gap: 3px; }
 .page-order button, .delete-page { border: 1px solid #ccc; background: #fff; padding: 7px; font-size: 9px; }
-.page-copy { display: flex; flex-direction: column; gap: 5px; }
-.page-row > label { display: flex; align-items: center; gap: 7px; color: #666; font-size: 9px; text-transform: uppercase; }
-.page-row select { border: 1px solid #aaa; background: #fff; padding: 7px; }
+.page-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.page-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-card-body > label, .page-enabled { display: flex; align-items: center; justify-content: space-between; gap: 7px; color: #666; font-size: 9px; text-transform: uppercase; }
+.page-card-body select { border: 1px solid #aaa; background: #fff; padding: 7px; }
+.page-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px dotted #ccc; padding-top: 10px; }
 .delete-page { color: #7d1515; cursor: pointer; }
 .crop-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(0 0 0 / 72%); }
 .crop-dialog { width: min(920px, 100%); max-height: calc(100vh - 40px); overflow: auto; border: 1px solid #000; background: #fff; box-shadow: 10px 10px 0 rgb(255 255 255 / 25%); }
 .crop-dialog > header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #d9d9d9; padding: 14px 18px; }
 .crop-dialog > header h2 { border: 0; margin: 4px 0 0; padding: 0; font-size: 18px; }
 .crop-dialog > header button { border: 0; background: transparent; font-size: 28px; cursor: pointer; }
-.crop-stage { padding: 16px 16px 0; }
-.crop-stage canvas { display: block; width: 100%; aspect-ratio: 5 / 3; border: 2px solid #000; background: #eee; cursor: grab; touch-action: none; }
-.crop-stage canvas:active { cursor: grabbing; }
-.crop-controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 16px; }
-.crop-controls label { display: grid; gap: 8px; color: #666; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
-.crop-controls input { width: 100%; accent-color: #000; }
+.crop-workspace { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(240px, .75fr); gap: 14px; padding: 16px 16px 0; }
+.crop-stage { min-width: 0; height: min(52vh, 500px); background: #222; }
+.crop-stage img { display: block; max-width: 100%; }
+.gray-preview { align-self: start; border: 1px solid #000; background: #fff; }
+.gray-preview span { display: block; border-bottom: 1px solid #ccc; padding: 9px; font-size: 9px; }
+.gray-preview canvas { display: block; width: 100%; aspect-ratio: 5 / 3; image-rendering: auto; }
+.photo-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 16px; }
+.photo-controls label { display: grid; gap: 8px; color: #666; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.photo-controls label > span { display: flex; justify-content: space-between; }
+.photo-controls input { width: 100%; accent-color: #000; }
 .crop-dialog > .muted { margin: 0; padding: 0 16px 14px; }
 .crop-dialog > footer { display: flex; justify-content: flex-end; gap: 9px; border-top: 1px solid #d9d9d9; padding: 14px 16px; }
 .crop-dialog > footer button { min-height: 40px; border: 1px solid #000; padding: 8px 14px; cursor: pointer; }
@@ -141,10 +161,17 @@ dt { color: #666; } dd { margin: 0; font-weight: 700; text-align: right; }
   .settings-form .password-setting { grid-column: auto; }
   .page-toolbar { align-items: stretch; flex-direction: column; }
   .upload-button { text-align: center; }
-  .page-row { grid-template-columns: auto 1fr auto; }
-  .page-row > label, .delete-page { grid-column: 2; }
-  .crop-controls { grid-template-columns: 1fr; }
+  .pages-list { display: flex; flex-direction: column; gap: 12px; }
+  .page-row { width: 100%; }
+  .crop-workspace { grid-template-columns: 1fr; }
+  .crop-stage { height: min(48vh, 420px); }
+  .photo-controls { grid-template-columns: 1fr; }
   .todo-composer { grid-template-columns: 1fr; }.primary-button { padding: 13px; }
+  .todo-view-toolbar { grid-template-columns: 1fr; align-items: stretch; }
+  .todo-filter > div { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .todo-filter button { border-right: 0; }
+  .eink-todo-settings { grid-template-columns: 1fr auto; border-left: 0; border-top: 1px solid #ccc; padding: 12px 0 0; }
+  .eink-todo-settings > span { grid-column: 1 / -1; }
   .todo-item { grid-template-columns: auto 1fr; }
   .eink-toggle, .todo-actions { grid-column: 2; }
   .preview-meta { flex-direction: column; }

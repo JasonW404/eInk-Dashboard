@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
-import { api, type DisplayContext, type DisplayRevision, type LatestReport, type Todo } from '../api/client'
+import { api, type DisplayContext, type DisplayRevision, type LatestReport, type Todo, type TodoDisplaySettings, type TodoSort } from '../api/client'
 
 interface EinkData {
   todos: Todo[]
   revision: DisplayRevision | null
   reports: LatestReport[]
   context: DisplayContext | null
+  todoSettings: TodoDisplaySettings
   error: string | null
 }
 
 export function EinkDisplay() {
-  const [data, setData] = useState<EinkData>({ todos: [], revision: null, reports: [], context: null, error: null })
+  const [data, setData] = useState<EinkData>({ todos: [], revision: null, reports: [], context: null, todoSettings: { show_completed: true, sort: 'manual' }, error: null })
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -21,12 +22,13 @@ export function EinkDisplay() {
       api.revision(),
       api.latestReports(),
       api.displayContext().catch(() => null),
+      api.todoDisplaySettings(),
     ])
-      .then(([todos, revision, reports, context]) => {
-        if (active) setData({ todos, revision, reports, context, error: null })
+      .then(([todos, revision, reports, context, todoSettings]) => {
+        if (active) setData({ todos, revision, reports, context, todoSettings, error: null })
       })
       .catch((reason: Error) => {
-        if (active) setData({ todos: [], revision: null, reports: [], context: null, error: reason.message })
+        if (active) setData({ todos: [], revision: null, reports: [], context: null, todoSettings: { show_completed: true, sort: 'manual' }, error: reason.message })
       })
       .finally(() => {
         if (active) setReady(true)
@@ -34,7 +36,7 @@ export function EinkDisplay() {
     return () => { active = false }
   }, [])
 
-  const visibleTodos = data.todos.filter((todo) => todo.display_on_eink).slice(0, 6)
+  const visibleTodos = sortEinkTodos(data.todos.filter((todo) => todo.display_on_eink && (data.todoSettings.show_completed || !todo.completed)), data.todoSettings.sort).slice(0, 6)
   const codex = data.reports.find((report) => report.type === 'codex')?.payload
   const github = data.reports.find((report) => report.type === 'github')?.payload
   const weeklyUsed = codexWeeklyUsed(codex)
@@ -95,6 +97,20 @@ export function EinkDisplay() {
       </div>
     </main>
   )
+}
+
+function sortEinkTodos(todos: Todo[], sort: TodoSort): Todo[] {
+  return [...todos].sort((left, right) => {
+    if (sort.startsWith('created_')) {
+      const result = new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+      return (sort === 'created_desc' ? -result : result) || left.sort_order - right.sort_order
+    }
+    if (sort.startsWith('completed_')) {
+      const result = Number(left.completed) - Number(right.completed)
+      return (sort === 'completed_desc' ? -result : result) || left.sort_order - right.sort_order
+    }
+    return left.sort_order - right.sort_order
+  })
 }
 
 function HotspotAccess({ context }: { context: DisplayContext | null }) {

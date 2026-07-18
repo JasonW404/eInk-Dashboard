@@ -92,6 +92,36 @@ def test_todos_persist_across_app_restarts(tmp_path: Path) -> None:
         UUID(client.get("/api/display/revision").json()["revision"])
 
 
+def test_todo_display_settings_persist_and_bump_revision(tmp_path: Path) -> None:
+    database_url = _database_url(tmp_path / "todo-display.db")
+    with TestClient(create_app(database_url)) as client:
+        assert client.get("/api/settings/todos/display").json() == {
+            "show_completed": True, "sort": "manual"
+        }
+        before = client.get("/api/display/revision").json()["revision"]
+        updated = client.put(
+            "/api/settings/todos/display",
+            json={"show_completed": False, "sort": "completed_asc"},
+        )
+        assert updated.status_code == 200
+        assert updated.json() == {"show_completed": False, "sort": "completed_asc"}
+        assert client.get("/api/display/revision").json()["revision"] != before
+
+    with TestClient(create_app(database_url)) as client:
+        assert client.get("/api/settings/todos/display").json() == {
+            "show_completed": False, "sort": "completed_asc"
+        }
+
+
+def test_todo_display_settings_reject_invalid_sort(tmp_path: Path) -> None:
+    with TestClient(create_app(_database_url(tmp_path / "todo-sort.db"))) as client:
+        response = client.put(
+            "/api/settings/todos/display",
+            json={"show_completed": True, "sort": "alphabetical"},
+        )
+        assert response.status_code == 422
+
+
 def test_legacy_integer_revision_is_migrated_to_uuid(tmp_path: Path) -> None:
     database_path = tmp_path / "legacy-revision.db"
     with sqlite3.connect(database_path) as connection:

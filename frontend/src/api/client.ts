@@ -13,6 +13,9 @@ export interface DisplayRevision {
   updated_at: string
 }
 
+export type TodoSort = 'manual' | 'created_asc' | 'created_desc' | 'completed_asc' | 'completed_desc'
+export interface TodoDisplaySettings { show_completed: boolean; sort: TodoSort }
+
 export interface DisplayContext {
   hotspot_enabled: boolean
   hotspot_ssid: string | null
@@ -118,6 +121,10 @@ export const api = {
   },
   health: () => request<{ status: string }>('/api/health'),
   todos: () => request<Todo[]>('/api/todos'),
+  todoDisplaySettings: () => request<TodoDisplaySettings>('/api/settings/todos/display'),
+  updateTodoDisplaySettings: (settings: TodoDisplaySettings) => request<TodoDisplaySettings>('/api/settings/todos/display', {
+    method: 'PUT', body: JSON.stringify(settings),
+  }),
   revision: () => request<DisplayRevision>('/api/display/revision'),
   displayContext: () => request<DisplayContext>('/api/display/context'),
   latestReports: () => request<LatestReport[]>('/api/reports/latest'),
@@ -132,6 +139,7 @@ export const api = {
     body: JSON.stringify(changes),
   }),
   pages: () => request<DisplayPage[]>('/api/pages'),
+  pageImage: (id: number, updatedAt: string) => `${apiPath(`/api/pages/${id}/image`)}?v=${encodeURIComponent(updatedAt)}`,
   uploadPage: (file: File) => uploadRequest<DisplayPage>('/api/pages', file),
   updatePage: (id: number, changes: Partial<Pick<DisplayPage, 'name' | 'interval_seconds' | 'enabled'>>) => request<DisplayPage>(`/api/pages/${id}`, {
     method: 'PATCH', headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined, body: JSON.stringify(changes),
