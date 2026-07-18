@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 from fastapi.testclient import TestClient
 
@@ -143,6 +144,27 @@ def test_connected_hotspot_clients_counts_reachable_unique_neighbors(tmp_path: P
 
     assert connected_hotspot_clients(arp) == 1
     assert connected_hotspot_clients(tmp_path / "missing") == 0
+
+
+def test_legacy_hotspot_settings_adds_default_wpa2_security(tmp_path: Path) -> None:
+    database_path = tmp_path / "legacy-hotspot.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "CREATE TABLE hotspot_settings ("
+            "id INTEGER PRIMARY KEY, enabled BOOLEAN NOT NULL, ssid VARCHAR(32) NOT NULL, "
+            "updated_at DATETIME NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO hotspot_settings VALUES (1, 1, 'Legacy InkPi', CURRENT_TIMESTAMP)"
+        )
+    app = create_app(
+        _database_url(database_path), web_dist=tmp_path / "missing-web",
+        display_renderer=FakeDisplayRenderer(), hotspot_active_checker=lambda: True,
+    )
+    with TestClient(app) as client:
+        settings = client.get("/api/settings/network")
+        assert settings.status_code == 200
+        assert settings.json()["security"] == "wpa2"
 
 
 def test_browser_login_remember_credentials_and_hotspot_revision(tmp_path: Path) -> None:

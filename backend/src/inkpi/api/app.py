@@ -5,16 +5,20 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
+import io
 import os
 from pathlib import Path
 import secrets
 import socket
+import time
 from typing import Annotated
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from inkpi.network.auth import AdminAuthError, AdminAuthPolicy, extract_bearer_token
 from inkpi.network.helper_client import DEFAULT_HELPER_SOCKET, HelperClient
@@ -48,6 +52,9 @@ from inkpi.api.schemas import (
     TodoOrder,
     TodoRead,
     TodoUpdate,
+    PageOrder,
+    PageRead,
+    PageUpdate,
 )
 
 SessionDependency = Annotated[Session, Depends(get_session)]
@@ -74,9 +81,35 @@ def create_app(
     auth_policy = admin_auth or AdminAuthPolicy.from_environment()
     client_counter = hotspot_client_counter or connected_hotspot_clients
     active_checker = hotspot_active_checker or hotspot_is_active
+    upload_root = Path(os.getenv("INKPI_UPLOAD_DIR", Path("~/.local/share/inkpi/pages").expanduser()))
+    upload_root.mkdir(parents=True, exist_ok=True)
 
     def current_hotspot_password() -> str | None:
         return helper.get_hotspot_password() or os.getenv("INKPI_HOTSPOT_PASSWORD")
+
+    def scheduled_page(session: Session) -> object | None:
+        pages = [page for page in repository.list_pages(session) if page.enabled]
+        if not pages:
+            return None
+        state = repository.get_display_state(session)
+        entries: list[tuple[object | None, int, int]] = [
+            (None, state.dashboard_interval_seconds, state.dashboard_sort_order),
+            *[(page, page.interval_seconds, page.sort_order) for page in pages],
+        ]
+        entries.sort(key=lambda item: item[2])
+        cursor = int(time.time()) % sum(duration for _, duration, _ in entries)
+        for page, duration, _ in entries:
+            if cursor < duration:
+                return page
+            cursor -= duration
+        return None
+
+    def effective_revision(session: Session) -> str:
+        base = repository.get_display_state(session).revision
+        page = scheduled_page(session)
+        if page is None and not any(item.enabled for item in repository.list_pages(session)):
+            return base
+        return str(uuid5(NAMESPACE_URL, f"{base}:page:{getattr(page, 'id', 'dashboard')}"))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -169,7 +202,8 @@ def create_app(
 
     @app.get("/api/display/revision", response_model=DisplayRevision)
     def display_revision(session: SessionDependency) -> object:
-        return repository.get_display_state(session)
+        state = repository.get_display_state(session)
+        return DisplayRevision(revision=effective_revision(session), updated_at=state.updated_at)
 
     @app.get("/api/display/context", response_model=DisplayContextRead)
     def display_context(request: Request, session: SessionDependency) -> DisplayContextRead:
@@ -185,8 +219,8 @@ def create_app(
         hotspot_active = active_checker()
         qr_payload = None
         hotspot_password = current_hotspot_password()
-        if hotspot_active and hotspot_password:
-            qr_payload = _wifi_qr_payload(settings.ssid, hotspot_password)
+        if hotspot_active and (settings.security == "open" or hotspot_password):
+            qr_payload = _wifi_qr_payload(settings.ssid, hotspot_password, settings.security)
         return DisplayContextRead(
             hotspot_enabled=hotspot_active,
             hotspot_ssid=settings.ssid if hotspot_active else None,
@@ -211,7 +245,7 @@ def create_app(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="remote display telemetry requires INKPI_DISPLAY_TOKEN",
             )
-        current_revision = repository.get_display_state(session).revision
+        current_revision = effective_revision(session)
         if payload.revision != current_revision:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="stale display revision")
         repository.record_display_refresh(
@@ -224,7 +258,17 @@ def create_app(
 
     @app.get("/api/display/image", response_class=Response)
     def display_image(session: SessionDependency) -> Response:
-        revision = repository.get_display_state(session).revision
+        revision = effective_revision(session)
+        page = scheduled_page(session)
+        if page is not None:
+            image_path = upload_root / page.file_name
+            if not image_path.is_file():
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="scheduled page image is missing")
+            return FileResponse(
+                image_path,
+                media_type="image/png",
+                headers={"Cache-Control": "no-store", "ETag": f'"inkpi-{revision}"', "X-InkPi-Revision": revision},
+            )
         try:
             png = renderer.render_png(revision)
         except DisplayRenderError as error:
@@ -248,6 +292,7 @@ def create_app(
         return HotspotRead(
             enabled=active_checker(),
             ssid=settings.ssid,
+            security=settings.security,
             connected_clients=client_counter(),
             updated_at=settings.updated_at,
         )
@@ -261,8 +306,11 @@ def create_app(
             auth_policy.validate_browser_session(inkpi_admin_session)
         except AdminAuthError as error:
             raise HTTPException(status_code=error.status, detail=str(error)) from error
-        password = current_hotspot_password()
-        if not password:
+        settings = None
+        with session_factory() as session:
+            settings = repository.get_hotspot_settings(session)
+        password = current_hotspot_password() if settings.security != "open" else None
+        if settings.security != "open" and not password:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="hotspot password is unavailable")
         response.headers["Cache-Control"] = "no-store"
         return HotspotCredentialsRead(password=password)
@@ -303,7 +351,7 @@ def create_app(
             raise HTTPException(status_code=error.status, detail=str(error)) from error
 
         current = repository.get_hotspot_settings(session)
-        if payload.enabled and not payload.password:
+        if payload.enabled and payload.security != "open" and not payload.password:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="password is required when enabling or updating the hotspot",
@@ -316,6 +364,7 @@ def create_app(
                 "ssid": payload.ssid,
                 "password": payload.password,
                 "mode": "visible",
+                "security": payload.security,
             }
         operation = helper.submit(build_operation_request(action, operation_payload))
         if operation.status == "failed":
@@ -327,16 +376,127 @@ def create_app(
             session,
             enabled=payload.enabled,
             ssid=payload.ssid,
+            security=payload.security,
         )
         repository.bump_revision(session)
         session.commit()
         return HotspotRead(
             enabled=active_checker(),
             ssid=saved.ssid,
+            security=saved.security,
             connected_clients=client_counter(),
             updated_at=saved.updated_at,
             operation=operation.to_payload(),
         )
+
+    @app.get("/api/pages", response_model=list[PageRead])
+    def pages(session: SessionDependency) -> list[object]:
+        state = repository.get_display_state(session)
+        result: list[object] = [
+            {
+                "id": 0, "kind": "dashboard", "name": "Dashboard",
+                "sort_order": state.dashboard_sort_order,
+                "interval_seconds": state.dashboard_interval_seconds,
+                "enabled": True, "created_at": state.updated_at, "updated_at": state.updated_at,
+            },
+            *repository.list_pages(session),
+        ]
+        return sorted(result, key=lambda item: item["sort_order"] if isinstance(item, dict) else item.sort_order)
+
+    @app.post("/api/pages", response_model=PageRead, status_code=status.HTTP_201_CREATED)
+    async def upload_page(
+        request: Request,
+        session: SessionDependency,
+        x_file_name: Annotated[str | None, Header()] = None,
+        x_csrf_token: Annotated[str | None, Header()] = None,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
+    ) -> object:
+        try:
+            auth_policy.validate_browser_session(inkpi_admin_session, x_csrf_token)
+        except AdminAuthError as error:
+            raise HTTPException(status_code=error.status, detail=str(error)) from error
+        body = await request.body()
+        if not body or len(body) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="image must be between 1 byte and 15 MB")
+        try:
+            source = Image.open(io.BytesIO(body))
+            source.load()
+            source = ImageOps.exif_transpose(source).convert("RGB")
+        except (UnidentifiedImageError, OSError) as error:
+            raise HTTPException(status_code=415, detail="upload a valid image") from error
+        canvas = ImageOps.fit(source, (800, 480), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+        file_name = f"{uuid4()}.png"
+        canvas.save(upload_root / file_name, format="PNG", optimize=True)
+        name = Path(x_file_name or "Photo").name[:255] or "Photo"
+        with session.begin():
+            return repository.create_page(session, name=name, file_name=file_name)
+
+    @app.patch("/api/pages/{page_id}", response_model=PageRead)
+    def update_page(
+        page_id: int, payload: PageUpdate, session: SessionDependency,
+        x_csrf_token: Annotated[str | None, Header()] = None,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
+    ) -> object:
+        try:
+            auth_policy.validate_browser_session(inkpi_admin_session, x_csrf_token)
+        except AdminAuthError as error:
+            raise HTTPException(status_code=error.status, detail=str(error)) from error
+        with session.begin():
+            if page_id == 0:
+                changes = payload.model_dump(exclude_unset=True)
+                if "enabled" in changes or "name" in changes:
+                    raise HTTPException(status_code=422, detail="the dashboard name and enabled state are fixed")
+                state = repository.get_display_state(session)
+                if payload.interval_seconds is not None:
+                    state.dashboard_interval_seconds = payload.interval_seconds
+                    state.updated_at = repository.utc_now()
+                    repository.bump_revision(session)
+                return {
+                    "id": 0, "kind": "dashboard", "name": "Dashboard",
+                    "sort_order": state.dashboard_sort_order,
+                    "interval_seconds": state.dashboard_interval_seconds,
+                    "enabled": True, "created_at": state.updated_at, "updated_at": state.updated_at,
+                }
+            page = repository.get_page(session, page_id)
+            if page is None:
+                raise HTTPException(status_code=404, detail="page not found")
+            return repository.update_page(session, page, payload.model_dump(exclude_unset=True))
+
+    @app.delete("/api/pages/{page_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_page(
+        page_id: int, session: SessionDependency,
+        x_csrf_token: Annotated[str | None, Header()] = None,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
+    ) -> Response:
+        try:
+            auth_policy.validate_browser_session(inkpi_admin_session, x_csrf_token)
+        except AdminAuthError as error:
+            raise HTTPException(status_code=error.status, detail=str(error)) from error
+        with session.begin():
+            page = repository.get_page(session, page_id)
+            if page is None:
+                raise HTTPException(status_code=404, detail="page not found")
+            image_path = upload_root / page.file_name
+            repository.delete_page(session, page)
+        image_path.unlink(missing_ok=True)
+        return Response(status_code=204)
+
+    @app.put("/api/pages/order", response_model=list[PageRead])
+    def reorder_pages(
+        payload: PageOrder, session: SessionDependency,
+        x_csrf_token: Annotated[str | None, Header()] = None,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
+    ) -> list[object]:
+        try:
+            auth_policy.validate_browser_session(inkpi_admin_session, x_csrf_token)
+        except AdminAuthError as error:
+            raise HTTPException(status_code=error.status, detail=str(error)) from error
+        try:
+            with session.begin():
+                repository.reorder_pages(session, payload.ordered_ids)
+            return pages(session)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/api/agents/register", response_model=AgentCredentials, status_code=status.HTTP_201_CREATED)
     def register_agent(
@@ -435,6 +595,7 @@ def create_app(
         @app.get("/", include_in_schema=False)
         @app.get("/todo", include_in_schema=False)
         @app.get("/settings", include_in_schema=False)
+        @app.get("/pages", include_in_schema=False)
         def web_application() -> FileResponse:
             return FileResponse(static_root / "index.html")
 
@@ -459,7 +620,7 @@ def _package_version() -> str:
         return "development"
 
 
-def _wifi_qr_payload(ssid: str, password: str) -> str:
+def _wifi_qr_payload(ssid: str, password: str | None, security: str = "wpa2") -> str:
     """Build a standards-compatible WPA Wi-Fi QR payload."""
 
     def escaped(value: str) -> str:
@@ -467,4 +628,6 @@ def _wifi_qr_payload(ssid: str, password: str) -> str:
             value = value.replace(character, f"\\{character}")
         return value
 
-    return f"WIFI:T:WPA;S:{escaped(ssid)};P:{escaped(password)};;"
+    if security == "open":
+        return f"WIFI:T:nopass;S:{escaped(ssid)};;"
+    return f"WIFI:T:WPA;S:{escaped(ssid)};P:{escaped(password or '')};;"

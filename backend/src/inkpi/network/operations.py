@@ -33,6 +33,7 @@ class NetworkOperationRequest:
     hidden_ssid: bool = False
     hotspot_mode: Literal["visible", "hidden"] | None = None
     share_upstream: bool = False
+    security: Literal["open", "wpa2", "wpa3", "wpa2-wpa3"] = "wpa2"
 
 
 @dataclass(frozen=False)
@@ -141,6 +142,9 @@ def build_operation_request(
         if mode not in {"visible", "hidden"}:
             raise ValueError("hotspot mode must be visible or hidden")
         password = _optional_secret(payload, "password")
+        security = str(payload.get("security", "wpa2"))
+        if security not in {"open", "wpa2", "wpa3", "wpa2-wpa3"}:
+            raise ValueError("hotspot security must be open, wpa2, wpa3, or wpa2-wpa3")
         return NetworkOperationRequest(
             action=action,
             ssid=_optional_text(payload, "ssid") or "InkPi",
@@ -148,6 +152,7 @@ def build_operation_request(
             password_supplied=password is not None,
             hotspot_mode=mode,  # type: ignore[arg-type]
             share_upstream=bool(payload.get("share_upstream", False)),
+            security=security,  # type: ignore[arg-type]
         )
 
     if action == "hotspot_rotate_password":
@@ -227,6 +232,8 @@ def _safe_details(request: NetworkOperationRequest) -> dict[str, object]:
         details["hotspot_mode"] = request.hotspot_mode
     if request.share_upstream:
         details["share_upstream"] = True
+    if request.action in {"hotspot_enable", "hotspot_configure"}:
+        details["security"] = request.security
     return details
 
 

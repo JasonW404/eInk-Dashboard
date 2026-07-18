@@ -9,7 +9,7 @@ from uuid import uuid4
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from inkpi.api.models import Agent, DisplayState, HotspotSettings, Report, Todo, utc_now
+from inkpi.api.models import Agent, DisplayPage, DisplayState, HotspotSettings, Report, Todo, utc_now
 from inkpi.api.schemas import TodoCreate, TodoUpdate
 
 
@@ -17,6 +17,24 @@ def initialize_schema(session_factory: sessionmaker[Session]) -> None:
     """Create the initial display revision row after metadata initialization."""
 
     with session_factory.begin() as session:
+        display_columns = {
+            row[1] for row in session.connection().exec_driver_sql("PRAGMA table_info(display_state)")
+        }
+        if display_columns and "dashboard_sort_order" not in display_columns:
+            session.connection().exec_driver_sql(
+                "ALTER TABLE display_state ADD COLUMN dashboard_sort_order INTEGER NOT NULL DEFAULT 0"
+            )
+        if display_columns and "dashboard_interval_seconds" not in display_columns:
+            session.connection().exec_driver_sql(
+                "ALTER TABLE display_state ADD COLUMN dashboard_interval_seconds INTEGER NOT NULL DEFAULT 60"
+            )
+        hotspot_columns = {
+            row[1] for row in session.connection().exec_driver_sql("PRAGMA table_info(hotspot_settings)")
+        }
+        if hotspot_columns and "security" not in hotspot_columns:
+            session.connection().exec_driver_sql(
+                "ALTER TABLE hotspot_settings ADD COLUMN security VARCHAR(16) NOT NULL DEFAULT 'wpa2'"
+            )
         if session.get(DisplayState, 1) is None:
             session.add(DisplayState(id=1))
         else:
@@ -121,13 +139,72 @@ def update_hotspot_settings(
     *,
     enabled: bool,
     ssid: str,
+    security: str,
 ) -> HotspotSettings:
     settings = get_hotspot_settings(session)
     settings.enabled = enabled
     settings.ssid = ssid
+    settings.security = security
     settings.updated_at = utc_now()
     session.flush()
     return settings
+
+
+def list_pages(session: Session) -> list[DisplayPage]:
+    return list(session.scalars(select(DisplayPage).order_by(DisplayPage.sort_order, DisplayPage.id)))
+
+
+def get_page(session: Session, page_id: int) -> DisplayPage | None:
+    return session.get(DisplayPage, page_id)
+
+
+def create_page(session: Session, *, name: str, file_name: str) -> DisplayPage:
+    state = get_display_state(session)
+    next_order = max(
+        state.dashboard_sort_order,
+        int(session.scalar(select(func.coalesce(func.max(DisplayPage.sort_order), -1))) or -1),
+    ) + 1
+    page = DisplayPage(name=name, file_name=file_name, sort_order=int(next_order or 0))
+    session.add(page)
+    session.flush()
+    bump_revision(session)
+    return page
+
+
+def update_page(session: Session, page: DisplayPage, changes: dict[str, object]) -> DisplayPage:
+    for field, value in changes.items():
+        setattr(page, field, value)
+    page.updated_at = utc_now()
+    session.flush()
+    bump_revision(session)
+    return page
+
+
+def delete_page(session: Session, page: DisplayPage) -> None:
+    removed_order = page.sort_order
+    session.delete(page)
+    session.flush()
+    session.execute(update(DisplayPage).where(DisplayPage.sort_order > removed_order).values(sort_order=DisplayPage.sort_order - 1))
+    state = get_display_state(session)
+    if state.dashboard_sort_order > removed_order:
+        state.dashboard_sort_order -= 1
+    bump_revision(session)
+
+
+def reorder_pages(session: Session, ordered_ids: list[int]) -> list[DisplayPage]:
+    pages = list_pages(session)
+    if len(set(ordered_ids)) != len(ordered_ids) or set(ordered_ids) != {0, *[page.id for page in pages]}:
+        raise ValueError("ordered_ids must contain the dashboard and every photo page exactly once")
+    by_id = {page.id: page for page in pages}
+    for order, page_id in enumerate(ordered_ids):
+        if page_id == 0:
+            get_display_state(session).dashboard_sort_order = order
+        else:
+            by_id[page_id].sort_order = order
+            by_id[page_id].updated_at = utc_now()
+    session.flush()
+    bump_revision(session)
+    return [by_id[page_id] for page_id in ordered_ids if page_id != 0]
 
 
 def token_hash(token: str) -> str:

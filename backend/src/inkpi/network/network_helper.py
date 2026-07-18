@@ -85,13 +85,8 @@ def plan_network_operation(request: NetworkOperationRequest) -> NetworkCommandPl
             )
         if request.share_upstream:
             steps.append(CommandStep(("nmcli", "connection", "modify", "InkPi Hotspot", "ipv4.method", "shared")))
-        steps.append(
-            CommandStep(
-                ("nmcli", "--ask", "connection", "up", "InkPi Hotspot"),
-                secret_stdin=request.password_supplied,
-                note="hotspot password is accepted only through helper stdin",
-            )
-        )
+        up_argv = ("nmcli", "connection", "up", "InkPi Hotspot") if request.security == "open" else ("nmcli", "--ask", "connection", "up", "InkPi Hotspot")
+        steps.append(CommandStep(up_argv, secret_stdin=request.password_supplied, note="hotspot password is accepted only through helper stdin"))
         if request.share_upstream:
             upstream = _upstream_interface(request)
             steps.extend(_nat_enable_steps(upstream))
@@ -225,7 +220,7 @@ def _wifi_connect_argv(request: NetworkOperationRequest) -> tuple[str, ...]:
 
 def _hotspot_add_argv(request: NetworkOperationRequest) -> tuple[str, ...]:
     """Create an inactive AP profile on a subnet that cannot collide with common wired sharing."""
-    return (
+    argv = [
         "nmcli",
         "connection",
         "add",
@@ -249,6 +244,8 @@ def _hotspot_add_argv(request: NetworkOperationRequest) -> tuple[str, ...]:
         "192.168.50.1/24",
         "ipv6.method",
         "disabled",
-        "wifi-sec.key-mgmt",
-        "wpa-psk",
-    )
+    ]
+    key_mgmt = {"wpa2": "wpa-psk", "wpa3": "sae", "wpa2-wpa3": "wpa-psk sae"}.get(request.security)
+    if key_mgmt:
+        argv.extend(("wifi-sec.key-mgmt", key_mgmt))
+    return tuple(argv)

@@ -40,6 +40,8 @@ class DisplayState(Base):
     last_refresh: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_full_refresh: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     refresh_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dashboard_sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dashboard_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
 
 
 class HotspotSettings(Base):
@@ -48,6 +50,20 @@ class HotspotSettings(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ssid: Mapped[str] = mapped_column(String(32), nullable=False, default="InkPi-AP")
+    security: Mapped[str] = mapped_column(String(16), nullable=False, default="wpa2")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class DisplayPage(Base):
+    __tablename__ = "display_pages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 

@@ -32,9 +32,23 @@ export interface LatestReport {
 export interface HotspotSettings {
   enabled: boolean
   ssid: string
+  security: HotspotSecurity
   connected_clients: number
   updated_at: string
   operation: Record<string, unknown> | null
+}
+
+export type HotspotSecurity = 'open' | 'wpa2' | 'wpa3' | 'wpa2-wpa3'
+
+export interface DisplayPage {
+  id: number
+  kind: 'dashboard' | 'photo'
+  name: string
+  sort_order: number
+  interval_seconds: number
+  enabled: boolean
+  created_at: string
+  updated_at: string
 }
 
 export interface SystemInfo {
@@ -72,6 +86,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+async function uploadRequest<T>(path: string, file: File): Promise<T> {
+  const response = await fetch(apiPath(path), {
+    method: 'POST', body: file,
+    headers: { ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}), 'X-File-Name': file.name },
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { detail?: string } | null
+    throw new Error(body?.detail ?? `Request failed (${response.status})`)
+  }
+  return response.json() as Promise<T>
+}
+
 export const api = {
   login: async (token: string, remember: boolean) => {
     const session = await request<AuthSession>('/api/auth/login', {
@@ -96,14 +122,23 @@ export const api = {
   displayContext: () => request<DisplayContext>('/api/display/context'),
   latestReports: () => request<LatestReport[]>('/api/reports/latest'),
   networkSettings: () => request<HotspotSettings>('/api/settings/network'),
-  hotspotCredentials: () => request<{ password: string }>('/api/settings/network/hotspot/credentials'),
+  hotspotCredentials: () => request<{ password: string | null }>('/api/settings/network/hotspot/credentials'),
   systemSettings: () => request<SystemInfo>('/api/settings/system'),
   updateHotspot: (
-    changes: { enabled: boolean; ssid: string; password?: string },
+    changes: { enabled: boolean; ssid: string; security: HotspotSecurity; password?: string },
   ) => request<HotspotSettings>('/api/settings/network/hotspot', {
     method: 'PUT',
     headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined,
     body: JSON.stringify(changes),
+  }),
+  pages: () => request<DisplayPage[]>('/api/pages'),
+  uploadPage: (file: File) => uploadRequest<DisplayPage>('/api/pages', file),
+  updatePage: (id: number, changes: Partial<Pick<DisplayPage, 'name' | 'interval_seconds' | 'enabled'>>) => request<DisplayPage>(`/api/pages/${id}`, {
+    method: 'PATCH', headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined, body: JSON.stringify(changes),
+  }),
+  deletePage: (id: number) => request<void>(`/api/pages/${id}`, { method: 'DELETE', headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined }),
+  reorderPages: (orderedIds: number[]) => request<DisplayPage[]>('/api/pages/order', {
+    method: 'PUT', headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined, body: JSON.stringify({ ordered_ids: orderedIds }),
   }),
   createTodo: (title: string) => request<Todo>('/api/todos', {
     method: 'POST',

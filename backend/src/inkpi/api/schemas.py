@@ -81,7 +81,8 @@ class SystemInfoRead(BaseModel):
 class HotspotUpdate(BaseModel):
     enabled: bool
     ssid: str = Field(min_length=1, max_length=32)
-    password: str | None = Field(default=None, min_length=8, max_length=63)
+    security: str = Field(default="wpa2", pattern="^(open|wpa2|wpa3|wpa2-wpa3)$")
+    password: str | None = Field(default=None, max_length=63)
 
     @field_validator("ssid")
     @classmethod
@@ -91,17 +92,47 @@ class HotspotUpdate(BaseModel):
             raise ValueError("ssid must not be blank")
         return value
 
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str | None) -> str | None:
+        if value is not None and value != "" and len(value) < 8:
+            raise ValueError("password must contain 8 to 63 characters")
+        return value or None
+
 
 class HotspotRead(BaseModel):
     enabled: bool
     ssid: str
+    security: str
     connected_clients: int
     updated_at: datetime
     operation: dict[str, object] | None = None
 
 
 class HotspotCredentialsRead(BaseModel):
-    password: str
+    password: str | None
+
+
+class PageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    kind: str = "photo"
+    name: str
+    sort_order: int
+    interval_seconds: int
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class PageUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    interval_seconds: int | None = Field(default=None, ge=10, le=86400)
+    enabled: bool | None = None
+
+
+class PageOrder(BaseModel):
+    ordered_ids: list[int]
 
 
 class LoginRequest(BaseModel):
