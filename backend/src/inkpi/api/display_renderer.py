@@ -6,6 +6,7 @@ import queue
 import threading
 from dataclasses import dataclass, field
 from typing import Protocol
+from urllib.parse import quote as _quote
 
 
 class DisplayRenderError(RuntimeError):
@@ -21,6 +22,7 @@ class DisplayImageRenderer(Protocol):
 @dataclass
 class _RenderJob:
     revision: str
+    url: str | None = None
     done: threading.Event = field(default_factory=threading.Event)
     png: bytes | None = None
     error: BaseException | None = None
@@ -36,14 +38,14 @@ class PlaywrightDisplayRenderer:
         self._thread: threading.Thread | None = None
         self._start_lock = threading.Lock()
         self._render_lock = threading.Lock()
-        self._cached_revision: str | None = None
-        self._cached_png: bytes | None = None
+        self._cache: dict[str, bytes] = {}
 
-    def render_png(self, revision: str) -> bytes:
+    def _render_and_cache(self, cache_key: str, revision: str, url: str | None = None) -> bytes:
         with self._render_lock:
-            if revision == self._cached_revision and self._cached_png is not None:
-                return self._cached_png
-            job = _RenderJob(revision=revision)
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
+            job = _RenderJob(revision=revision, url=url)
             self._jobs.put(job)
             self._ensure_started()
             if not job.done.wait(self._timeout_seconds + 5):
@@ -52,9 +54,21 @@ class PlaywrightDisplayRenderer:
                 raise DisplayRenderError(f"display renderer failed: {job.error}") from job.error
             if job.png is None:
                 raise DisplayRenderError("display renderer returned no image")
-            self._cached_revision = revision
-            self._cached_png = job.png
+            self._cache[cache_key] = job.png
             return job.png
+
+    def render_png(self, revision: str) -> bytes:
+        return self._render_and_cache(f"dashboard:{revision}", revision)
+
+    def render_text_png(self, content: str, revision: str) -> bytes:
+        import json as _json
+        try:
+            style = _json.loads(content)
+        except (ValueError, TypeError) as error:
+            raise DisplayRenderError(f"invalid text page content: {error}") from error
+        params = "&".join(f"{k}={_quote(str(v))}" for k, v in style.items())
+        url = f"{self._base_url}/text.html?{params}"
+        return self._render_and_cache(f"text:{revision}:{params}", revision, url)
 
     def close(self) -> None:
         thread = self._thread
@@ -100,8 +114,9 @@ class PlaywrightDisplayRenderer:
         try:
             context = browser.new_context(viewport={"width": 800, "height": 480})
             page = context.new_page()
+            target_url = job.url if job.url else f"{self._base_url}/eink.html?revision={job.revision}"
             page.goto(
-                f"{self._base_url}/eink.html?revision={job.revision}",
+                target_url,
                 wait_until="domcontentloaded",
                 timeout=timeout_ms,
             )

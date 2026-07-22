@@ -20,6 +20,7 @@ export default defineConfig({
       input: {
         web: 'index.html',
         eink: 'eink.html',
+        text: 'text.html',
       },
     },
   },

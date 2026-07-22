@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import Cropper from 'cropperjs'
 import 'cropperjs/dist/cropper.css'
@@ -330,6 +330,8 @@ function PagesPage() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [cropQueue, setCropQueue] = useState<File[]>([])
+  const [textEditorOpen, setTextEditorOpen] = useState(false)
+  const [editingPage, setEditingPage] = useState<DisplayPage | null>(null)
   const load = () => api.pages().then(setPages).catch((reason: Error) => setMessage(reason.message))
   useEffect(() => { void load() }, [])
   const mutate = async (operation: () => Promise<unknown>) => {
@@ -345,11 +347,14 @@ function PagesPage() {
   return <Page title="Pages" eyebrow="DISPLAY PLAYLIST">
     <section className="page-toolbar">
       <div><strong>Display playlist</strong><span>Arrange the dashboard and photos in one continuous loop</span></div>
-      <label className="upload-button">+ Upload photos<input disabled={busy} type="file" accept="image/*" multiple onChange={(event) => {
-        const files = Array.from(event.target.files ?? [])
-        if (files.length) setCropQueue(files)
-        event.target.value = ''
-      }} /></label>
+      <div className="page-toolbar-actions">
+        <button className="text-page-button" disabled={busy} onClick={() => setTextEditorOpen(true)}>+ New text page</button>
+        <label className="upload-button">+ Upload photos<input disabled={busy} type="file" accept="image/*" multiple onChange={(event) => {
+          const files = Array.from(event.target.files ?? [])
+          if (files.length) setCropQueue(files)
+          event.target.value = ''
+        }} /></label>
+      </div>
     </section>
     {message && <p className="settings-message" role="status">{message}</p>}
     <div className="pages-list">
@@ -359,9 +364,9 @@ function PagesPage() {
           ? <img src={`${apiPath('/api/display/dashboard-image')}?v=${encodeURIComponent(page.updated_at)}`} alt="Dashboard preview" />
           : <img src={api.pageImage(page.id, page.updated_at)} alt={`Preview of ${page.name}`} />}</div>
         <div className="page-card-body">
-          <div className="page-copy"><strong>{page.name}</strong><span>{page.kind === 'dashboard' ? 'LIVE INKPI OVERVIEW' : `PHOTO PAGE · POSITION ${index + 1}`}</span></div>
+          <div className="page-copy"><strong>{page.name}</strong><span>{page.kind === 'dashboard' ? 'LIVE INKPI OVERVIEW' : page.kind === 'text' ? `TEXT PAGE · POSITION ${index + 1}` : `PHOTO PAGE · POSITION ${index + 1}`}</span></div>
           <label>Interval<select value={page.interval_seconds} disabled={busy} onChange={(event) => void mutate(() => api.updatePage(page.id, { interval_seconds: Number(event.target.value) }))}><option value={30}>30 sec</option><option value={60}>1 min</option><option value={300}>5 min</option><option value={900}>15 min</option><option value={3600}>1 hour</option></select></label>
-          <div className="page-card-actions"><div className="page-order"><button disabled={busy || index === 0} onClick={() => move(index, -1)}>↑</button><button disabled={busy || index === pages.length - 1} onClick={() => move(index, 1)}>↓</button></div><label className="page-enabled"><input type="checkbox" checked={page.enabled} disabled={busy || page.kind === 'dashboard'} onChange={() => void mutate(() => api.updatePage(page.id, { enabled: !page.enabled }))} /> ACTIVE</label><button className="delete-page" disabled={busy || page.kind === 'dashboard'} onClick={() => void mutate(() => api.deletePage(page.id))}>{page.kind === 'dashboard' ? 'BUILT IN' : 'DELETE'}</button></div>
+          <div className="page-card-actions"><div className="page-order"><button disabled={busy || index === 0} onClick={() => move(index, -1)}>↑</button><button disabled={busy || index === pages.length - 1} onClick={() => move(index, 1)}>↓</button></div>{page.kind === 'text' && <button className="edit-page" disabled={busy} onClick={() => setEditingPage(page)}>EDIT</button>}<label className="page-enabled"><input type="checkbox" checked={page.enabled} disabled={busy} onChange={() => void mutate(() => api.updatePage(page.id, { enabled: !page.enabled }))} /> ACTIVE</label><button className="delete-page" disabled={busy || page.kind === 'dashboard'} onClick={() => void mutate(() => api.deletePage(page.id))}>{page.kind === 'dashboard' ? 'BUILT IN' : 'DELETE'}</button></div>
         </div>
       </article>)}
     </div>
@@ -370,6 +375,16 @@ function PagesPage() {
       const uploaded = await mutate(() => api.uploadPage(cropped))
       if (uploaded) setCropQueue((queue) => queue.slice(1))
       return uploaded
+    }} />}
+    {textEditorOpen && <TextPageEditor onCancel={() => setTextEditorOpen(false)} onConfirm={async (pageName, content) => {
+      const created = await mutate(() => api.createTextPage(pageName, content))
+      if (created) setTextEditorOpen(false)
+      return created
+    }} />}
+    {editingPage && <TextPageEditor initialPage={editingPage} onCancel={() => setEditingPage(null)} onConfirm={async (pageName, content) => {
+      const updated = await mutate(() => api.updatePage(editingPage.id, { name: pageName, content }))
+      if (updated) setEditingPage(null)
+      return updated
     }} />}
   </Page>
 }
@@ -459,6 +474,117 @@ function renderFourGrayPreview(cropper: Cropper | null, output: HTMLCanvasElemen
     frame.data[pixel] = gray; frame.data[pixel + 1] = gray; frame.data[pixel + 2] = gray; frame.data[pixel + 3] = 255
   }
   context.putImageData(frame, 0, 0)
+}
+
+function TextPageEditor({ initialPage, onCancel, onConfirm }: { initialPage?: DisplayPage; onCancel: () => void; onConfirm: (name: string, content: string) => Promise<boolean> }) {
+  const parsed = useMemo(() => {
+    if (!initialPage?.content) return null
+    try { return JSON.parse(initialPage.content) as Record<string, unknown> } catch { return null }
+  }, [initialPage])
+  const [name, setName] = useState(initialPage?.name ?? 'Text Page')
+  const [text, setText] = useState(typeof parsed?.text === 'string' ? parsed.text : '')
+  const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>((parsed?.textAlign as 'left' | 'center' | 'right') ?? 'center')
+  const [horizontalAlign, setHorizontalAlign] = useState<'left' | 'center' | 'right'>((parsed?.horizontalAlign as 'left' | 'center' | 'right') ?? 'center')
+  const [verticalAlign, setVerticalAlign] = useState<'top' | 'center' | 'bottom'>((parsed?.verticalAlign as 'top' | 'center' | 'bottom') ?? 'center')
+  const [paddingTop, setPaddingTop] = useState(typeof parsed?.paddingTop === 'number' ? parsed.paddingTop : 20)
+  const [paddingBottom, setPaddingBottom] = useState(typeof parsed?.paddingBottom === 'number' ? parsed.paddingBottom : 20)
+  const [paddingLeft, setPaddingLeft] = useState(typeof parsed?.paddingLeft === 'number' ? parsed.paddingLeft : 20)
+  const [paddingRight, setPaddingRight] = useState(typeof parsed?.paddingRight === 'number' ? parsed.paddingRight : 20)
+  const [saving, setSaving] = useState(false)
+  const isEditing = !!initialPage
+
+  const scalerRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+
+  useEffect(() => {
+    const el = scalerRef.current
+    if (!el) return
+    const update = () => {
+      const w = el.clientWidth
+      setScale(w / 800)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const previewUrl = useMemo(() => {
+    const params = new URLSearchParams({
+      text,
+      textAlign, horizontalAlign, verticalAlign,
+      paddingTop: String(paddingTop), paddingBottom: String(paddingBottom),
+      paddingLeft: String(paddingLeft), paddingRight: String(paddingRight),
+    })
+    return apiPath(`/text.html?${params}`)
+  }, [text, textAlign, horizontalAlign, verticalAlign, paddingTop, paddingBottom, paddingLeft, paddingRight])
+
+  const contentJson = JSON.stringify({ text, textAlign, horizontalAlign, verticalAlign, paddingTop, paddingBottom, paddingLeft, paddingRight })
+
+  const confirm = async () => {
+    if (!text.trim()) return
+    setSaving(true)
+    await onConfirm(name || 'Text Page', contentJson)
+    setSaving(false)
+  }
+
+  return <div className="crop-backdrop" role="presentation">
+    <section className="text-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="text-editor-title">
+      <header>
+        <div><span className="eyebrow">{isEditing ? 'EDIT TEXT PAGE' : 'NEW TEXT PAGE'}</span><h2 id="text-editor-title">{isEditing ? 'Edit Text Page' : 'Create Text Page'}</h2></div>
+        <button onClick={onCancel} aria-label="Cancel">×</button>
+      </header>
+      <div className="text-editor-workspace">
+        <div className="text-editor-preview">
+          <span>PREVIEW · 800 × 480</span>
+          <div className="text-preview-scaler" ref={scalerRef}>
+            <iframe src={previewUrl} title="Text page preview" className="text-preview-frame" style={{ transform: `scale(${scale})` }} />
+          </div>
+        </div>
+        <div className="text-editor-controls">
+          <div className="text-style-controls">
+            <label><span>NAME</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} /></label>
+            <div className="style-row">
+              <span>TEXT ALIGN</span>
+              <div className="button-group">
+                <button className={textAlign === 'left' ? 'active' : ''} onClick={() => setTextAlign('left')}>L</button>
+                <button className={textAlign === 'center' ? 'active' : ''} onClick={() => setTextAlign('center')}>C</button>
+                <button className={textAlign === 'right' ? 'active' : ''} onClick={() => setTextAlign('right')}>R</button>
+              </div>
+            </div>
+            <div className="style-row">
+              <span>HORIZONTAL</span>
+              <div className="button-group">
+                <button className={horizontalAlign === 'left' ? 'active' : ''} onClick={() => setHorizontalAlign('left')}>L</button>
+                <button className={horizontalAlign === 'center' ? 'active' : ''} onClick={() => setHorizontalAlign('center')}>C</button>
+                <button className={horizontalAlign === 'right' ? 'active' : ''} onClick={() => setHorizontalAlign('right')}>R</button>
+              </div>
+            </div>
+            <div className="style-row">
+              <span>VERTICAL</span>
+              <div className="button-group">
+                <button className={verticalAlign === 'top' ? 'active' : ''} onClick={() => setVerticalAlign('top')}>T</button>
+                <button className={verticalAlign === 'center' ? 'active' : ''} onClick={() => setVerticalAlign('center')}>C</button>
+                <button className={verticalAlign === 'bottom' ? 'active' : ''} onClick={() => setVerticalAlign('bottom')}>B</button>
+              </div>
+            </div>
+            <div className="style-row padding-row">
+              <span>PADDING</span>
+              <label>T<input type="number" min={0} max={200} value={paddingTop} onChange={(e) => setPaddingTop(Number(e.target.value))} /></label>
+              <label>B<input type="number" min={0} max={200} value={paddingBottom} onChange={(e) => setPaddingBottom(Number(e.target.value))} /></label>
+              <label>L<input type="number" min={0} max={200} value={paddingLeft} onChange={(e) => setPaddingLeft(Number(e.target.value))} /></label>
+              <label>R<input type="number" min={0} max={200} value={paddingRight} onChange={(e) => setPaddingRight(Number(e.target.value))} /></label>
+            </div>
+          </div>
+          <label className="text-input-label"><span>MARKDOWN CONTENT</span><textarea className="text-input-area" value={text} onChange={(e) => setText(e.target.value)} placeholder="Enter Markdown here... (# heading, **bold**, *italic*, - list)" /></label>
+        </div>
+      </div>
+      <footer>
+        <button onClick={onCancel}>Cancel</button>
+        <button className="primary-button" disabled={!text.trim() || saving} onClick={confirm}>{saving ? 'SAVING…' : isEditing ? 'Save changes' : 'Create page'}</button>
+      </footer>
+    </section>
+  </div>
 }
 
 function SettingsPage() {

@@ -48,6 +48,7 @@ from inkpi.api.schemas import (
     ReportCreate,
     ReportRead,
     SystemInfoRead,
+    TextPageCreate,
     TodoCreate,
     TodoOrder,
     TodoDisplaySettings,
@@ -90,13 +91,13 @@ def create_app(
 
     def scheduled_page(session: Session) -> object | None:
         pages = [page for page in repository.list_pages(session) if page.enabled]
-        if not pages:
-            return None
         state = repository.get_display_state(session)
-        entries: list[tuple[object | None, int, int]] = [
-            (None, state.dashboard_interval_seconds, state.dashboard_sort_order),
-            *[(page, page.interval_seconds, page.sort_order) for page in pages],
-        ]
+        entries: list[tuple[object | None, int, int]] = []
+        if state.dashboard_enabled:
+            entries.append((None, state.dashboard_interval_seconds, state.dashboard_sort_order))
+        entries.extend((page, page.interval_seconds, page.sort_order) for page in pages)
+        if not entries:
+            return None
         entries.sort(key=lambda item: item[2])
         cursor = int(time.time()) % sum(duration for _, duration, _ in entries)
         for page, duration, _ in entries:
@@ -277,6 +278,16 @@ def create_app(
         revision = effective_revision(session)
         page = scheduled_page(session)
         if page is not None:
+            if getattr(page, "kind", "photo") == "text":
+                try:
+                    png = renderer.render_text_png(page.content or "{}", revision)
+                except DisplayRenderError as error:
+                    raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+                return Response(
+                    content=png,
+                    media_type="image/png",
+                    headers={"Cache-Control": "no-store", "ETag": f'"inkpi-{revision}"', "X-InkPi-Revision": revision},
+                )
             image_path = upload_root / page.file_name
             if not image_path.is_file():
                 raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="scheduled page image is missing")
@@ -423,7 +434,7 @@ def create_app(
                 "id": 0, "kind": "dashboard", "name": "Dashboard",
                 "sort_order": state.dashboard_sort_order,
                 "interval_seconds": state.dashboard_interval_seconds,
-                "enabled": True, "created_at": state.updated_at, "updated_at": state.updated_at,
+                "enabled": state.dashboard_enabled, "created_at": state.updated_at, "updated_at": state.updated_at,
             },
             *repository.list_pages(session),
         ]
@@ -457,11 +468,32 @@ def create_app(
         with session.begin():
             return repository.create_page(session, name=name, file_name=file_name)
 
-    @app.get("/api/pages/{page_id}/image", response_class=FileResponse)
-    def page_image(page_id: int, session: SessionDependency) -> FileResponse:
+    @app.post("/api/pages/text", response_model=PageRead, status_code=status.HTTP_201_CREATED)
+    def create_text_page(
+        payload: TextPageCreate,
+        session: SessionDependency,
+        x_csrf_token: Annotated[str | None, Header()] = None,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
+    ) -> object:
+        try:
+            auth_policy.validate_browser_session(inkpi_admin_session, x_csrf_token)
+        except AdminAuthError as error:
+            raise HTTPException(status_code=error.status, detail=str(error)) from error
+        with session.begin():
+            return repository.create_text_page(session, name=payload.name, content=payload.content)
+
+    @app.get("/api/pages/{page_id}/image", response_class=Response)
+    def page_image(page_id: int, session: SessionDependency) -> Response:
         page = repository.get_page(session, page_id)
         if page is None:
             raise HTTPException(status_code=404, detail="page not found")
+        if getattr(page, "kind", "photo") == "text":
+            revision = repository.get_display_state(session).revision
+            try:
+                png = renderer.render_text_png(page.content or "{}", revision)
+            except DisplayRenderError as error:
+                raise HTTPException(status_code=503, detail=str(error)) from error
+            return Response(content=png, media_type="image/png", headers={"Cache-Control": "private, max-age=60"})
         image_path = upload_root / page.file_name
         if not image_path.is_file():
             raise HTTPException(status_code=404, detail="page image is missing")
@@ -480,18 +512,21 @@ def create_app(
         with session.begin():
             if page_id == 0:
                 changes = payload.model_dump(exclude_unset=True)
-                if "enabled" in changes or "name" in changes:
-                    raise HTTPException(status_code=422, detail="the dashboard name and enabled state are fixed")
+                if "name" in changes:
+                    raise HTTPException(status_code=422, detail="the dashboard name is fixed")
                 state = repository.get_display_state(session)
                 if payload.interval_seconds is not None:
                     state.dashboard_interval_seconds = payload.interval_seconds
+                if payload.enabled is not None:
+                    state.dashboard_enabled = payload.enabled
+                if payload.interval_seconds is not None or payload.enabled is not None:
                     state.updated_at = repository.utc_now()
                     repository.bump_revision(session)
                 return {
                     "id": 0, "kind": "dashboard", "name": "Dashboard",
                     "sort_order": state.dashboard_sort_order,
                     "interval_seconds": state.dashboard_interval_seconds,
-                    "enabled": True, "created_at": state.updated_at, "updated_at": state.updated_at,
+                "enabled": state.dashboard_enabled, "created_at": state.updated_at, "updated_at": state.updated_at,
                 }
             page = repository.get_page(session, page_id)
             if page is None:
@@ -512,9 +547,11 @@ def create_app(
             page = repository.get_page(session, page_id)
             if page is None:
                 raise HTTPException(status_code=404, detail="page not found")
-            image_path = upload_root / page.file_name
+            file_name = page.file_name
             repository.delete_page(session, page)
-        image_path.unlink(missing_ok=True)
+        if file_name:
+            image_path = upload_root / file_name
+            image_path.unlink(missing_ok=True)
         return Response(status_code=204)
 
     @app.put("/api/pages/order", response_model=list[PageRead])
@@ -638,6 +675,10 @@ def create_app(
         @app.get("/eink.html", include_in_schema=False)
         def eink_application() -> FileResponse:
             return FileResponse(static_root / "eink.html")
+
+        @app.get("/text.html", include_in_schema=False)
+        def text_application() -> FileResponse:
+            return FileResponse(static_root / "text.html")
 
     return app
 

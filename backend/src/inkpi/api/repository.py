@@ -36,6 +36,10 @@ def initialize_schema(session_factory: sessionmaker[Session]) -> None:
             session.connection().exec_driver_sql(
                 "ALTER TABLE display_state ADD COLUMN todo_sort VARCHAR(24) NOT NULL DEFAULT 'manual'"
             )
+        if display_columns and "dashboard_enabled" not in display_columns:
+            session.connection().exec_driver_sql(
+                "ALTER TABLE display_state ADD COLUMN dashboard_enabled BOOLEAN NOT NULL DEFAULT 1"
+            )
         hotspot_columns = {
             row[1] for row in session.connection().exec_driver_sql("PRAGMA table_info(hotspot_settings)")
         }
@@ -43,6 +47,43 @@ def initialize_schema(session_factory: sessionmaker[Session]) -> None:
             session.connection().exec_driver_sql(
                 "ALTER TABLE hotspot_settings ADD COLUMN security VARCHAR(16) NOT NULL DEFAULT 'wpa2'"
             )
+        page_info = list(session.connection().exec_driver_sql("PRAGMA table_info(display_pages)"))
+        page_columns = {row[1] for row in page_info}
+        if page_columns and "kind" not in page_columns:
+            session.connection().exec_driver_sql(
+                "ALTER TABLE display_pages ADD COLUMN kind VARCHAR(20) NOT NULL DEFAULT 'photo'"
+            )
+        if page_columns and "content" not in page_columns:
+            session.connection().exec_driver_sql(
+                "ALTER TABLE display_pages ADD COLUMN content TEXT"
+            )
+        page_info = list(session.connection().exec_driver_sql("PRAGMA table_info(display_pages)"))
+        file_name_row = next((row for row in page_info if row[1] == "file_name"), None)
+        if file_name_row is not None and file_name_row[3] == 1:
+            conn = session.connection()
+            conn.exec_driver_sql(
+                "CREATE TABLE display_pages_new ("
+                "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "  name VARCHAR(255) NOT NULL,"
+                "  kind VARCHAR(20) NOT NULL DEFAULT 'photo',"
+                "  file_name VARCHAR(255) UNIQUE,"
+                "  content TEXT,"
+                "  sort_order INTEGER NOT NULL,"
+                "  interval_seconds INTEGER NOT NULL DEFAULT 60,"
+                "  enabled BOOLEAN NOT NULL DEFAULT 1,"
+                "  created_at DATETIME NOT NULL,"
+                "  updated_at DATETIME NOT NULL"
+                ")"
+            )
+            conn.exec_driver_sql(
+                "INSERT INTO display_pages_new"
+                " (id, name, kind, file_name, content, sort_order, interval_seconds, enabled, created_at, updated_at)"
+                " SELECT id, name, kind, file_name, content, sort_order, interval_seconds, enabled, created_at, updated_at"
+                " FROM display_pages"
+            )
+            conn.exec_driver_sql("DROP TABLE display_pages")
+            conn.exec_driver_sql("ALTER TABLE display_pages_new RENAME TO display_pages")
+            conn.exec_driver_sql("CREATE INDEX ix_display_pages_sort_order ON display_pages (sort_order)")
         if session.get(DisplayState, 1) is None:
             session.add(DisplayState(id=1))
         else:
@@ -191,6 +232,19 @@ def create_page(session: Session, *, name: str, file_name: str) -> DisplayPage:
     return page
 
 
+def create_text_page(session: Session, *, name: str, content: str) -> DisplayPage:
+    state = get_display_state(session)
+    next_order = max(
+        state.dashboard_sort_order,
+        int(session.scalar(select(func.coalesce(func.max(DisplayPage.sort_order), -1))) or -1),
+    ) + 1
+    page = DisplayPage(name=name, kind="text", content=content, sort_order=int(next_order or 0))
+    session.add(page)
+    session.flush()
+    bump_revision(session)
+    return page
+
+
 def update_page(session: Session, page: DisplayPage, changes: dict[str, object]) -> DisplayPage:
     for field, value in changes.items():
         setattr(page, field, value)
@@ -214,7 +268,7 @@ def delete_page(session: Session, page: DisplayPage) -> None:
 def reorder_pages(session: Session, ordered_ids: list[int]) -> list[DisplayPage]:
     pages = list_pages(session)
     if len(set(ordered_ids)) != len(ordered_ids) or set(ordered_ids) != {0, *[page.id for page in pages]}:
-        raise ValueError("ordered_ids must contain the dashboard and every photo page exactly once")
+        raise ValueError("ordered_ids must contain the dashboard and every page exactly once")
     by_id = {page.id: page for page in pages}
     for order, page_id in enumerate(ordered_ids):
         if page_id == 0:

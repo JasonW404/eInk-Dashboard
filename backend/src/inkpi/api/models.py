@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -44,6 +44,7 @@ class DisplayState(Base):
     dashboard_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     todo_show_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     todo_sort: Mapped[str] = mapped_column(String(24), nullable=False, default="manual")
+    dashboard_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class HotspotSettings(Base):
@@ -61,7 +62,9 @@ class DisplayPage(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    file_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="photo")
+    file_name: Mapped[str] = mapped_column(String(255), nullable=True, unique=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

@@ -45,7 +45,8 @@ export type HotspotSecurity = 'open' | 'wpa2' | 'wpa3' | 'wpa2-wpa3'
 
 export interface DisplayPage {
   id: number
-  kind: 'dashboard' | 'photo'
+  kind: 'dashboard' | 'photo' | 'text'
+  content: string | null
   name: string
   sort_order: number
   interval_seconds: number
@@ -141,7 +142,11 @@ export const api = {
   pages: () => request<DisplayPage[]>('/api/pages'),
   pageImage: (id: number, updatedAt: string) => `${apiPath(`/api/pages/${id}/image`)}?v=${encodeURIComponent(updatedAt)}`,
   uploadPage: (file: File) => uploadRequest<DisplayPage>('/api/pages', file),
-  updatePage: (id: number, changes: Partial<Pick<DisplayPage, 'name' | 'interval_seconds' | 'enabled'>>) => request<DisplayPage>(`/api/pages/${id}`, {
+  createTextPage: (name: string, content: string) => request<DisplayPage>('/api/pages/text', {
+    method: 'POST', headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined,
+    body: JSON.stringify({ name, content }),
+  }),
+  updatePage: (id: number, changes: Partial<Pick<DisplayPage, 'name' | 'interval_seconds' | 'enabled' | 'content'>>) => request<DisplayPage>(`/api/pages/${id}`, {
     method: 'PATCH', headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined, body: JSON.stringify(changes),
   }),
   deletePage: (id: number) => request<void>(`/api/pages/${id}`, { method: 'DELETE', headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined }),

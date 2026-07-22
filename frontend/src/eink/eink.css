@@ -6,7 +6,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body, #eink-root { width: 800px; height: 480px; margin: 0; overflow: hidden; }
+html, body, #eink-root, #text-root { width: 800px; height: 480px; margin: 0; overflow: hidden; }
 
 .eink-display {
   width: 800px;
@@ -73,3 +73,23 @@ html, body, #eink-root { width: 800px; height: 480px; margin: 0; overflow: hidde
 .eink-hotspot strong { max-width: 155px; overflow: hidden; text-overflow: ellipsis; font-size: 14px; white-space: nowrap; }
 .eink-hotspot svg { flex: none; shape-rendering: crispEdges; }
 .eink-system-idle { height: 100%; display: flex; align-items: center; margin: 0; color: #222; font-size: 13px; letter-spacing: .02em; }
+
+.text-page-content { line-height: 1.5; overflow: hidden; }
+.text-page-content h1 { font-size: 32px; font-weight: 700; margin: 0 0 12px; letter-spacing: .04em; }
+.text-page-content h2 { font-size: 26px; font-weight: 700; margin: 0 0 10px; letter-spacing: .03em; }
+.text-page-content h3 { font-size: 22px; font-weight: 700; margin: 0 0 8px; }
+.text-page-content h4 { font-size: 18px; font-weight: 700; margin: 0 0 6px; }
+.text-page-content h5 { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
+.text-page-content h6 { font-size: 14px; font-weight: 700; margin: 0 0 4px; }
+.text-page-content p { font-size: 16px; margin: 0 0 10px; }
+.text-page-content strong { font-weight: 700; }
+.text-page-content em { font-style: italic; }
+.text-page-content ul, .text-page-content ol { font-size: 16px; margin: 0 0 10px; padding-left: 24px; }
+.text-page-content li { margin: 0 0 4px; }
+.text-page-content blockquote { border-left: 3px solid #000; margin: 0 0 10px; padding: 4px 12px; font-size: 15px; }
+.text-page-content code { font-size: 14px; background: #eee; padding: 1px 4px; }
+.text-page-content pre { background: #eee; padding: 10px; margin: 0 0 10px; overflow: hidden; font-size: 13px; }
+.text-page-content pre code { background: none; padding: 0; }
+.text-page-content hr { border: 0; border-top: 2px solid #000; margin: 12px 0; }
+.text-page-content a { color: #000; text-decoration: underline; }
+.text-page-content > *:last-child { margin-bottom: 0; }

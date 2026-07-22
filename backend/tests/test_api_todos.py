@@ -12,11 +12,16 @@ from inkpi.api import create_app
 class FakeDisplayRenderer:
     def __init__(self) -> None:
         self.revisions: list[str] = []
+        self.text_renders: list[tuple[str, str]] = []
         self.closed = False
 
     def render_png(self, revision: str) -> bytes:
         self.revisions.append(revision)
         return b"fake-png"
+
+    def render_text_png(self, content: str, revision: str) -> bytes:
+        self.text_renders.append((content, revision))
+        return b"fake-text-png"
 
     def close(self) -> None:
         self.closed = True

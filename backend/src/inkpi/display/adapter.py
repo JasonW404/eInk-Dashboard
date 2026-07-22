@@ -214,6 +214,18 @@ class EPDAdapter:
             return image.rotate(270, expand=True)
         return image
 
+    def _transform_region(self, region: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+        """Map a region from pre-rotation coordinates to post-rotation coordinates."""
+        x1, y1, x2, y2 = region
+        w, h = self._width, self._height
+        if self._rotation == 180:
+            return (w - x2, h - y2, w - x1, h - y1)
+        if self._rotation == 90:
+            return (y1, w - x2, y2, w - x1)
+        if self._rotation == 270:
+            return (h - y2, x1, h - y1, x2)
+        return region
+
     def display_region(self, image: Image.Image, region: tuple[int, int, int, int]) -> bool:
         if not self._initialized:
             self._logger.warning("EPD not initialized, call initialize() first")
@@ -234,6 +246,7 @@ class EPDAdapter:
         try:
             self._prepare_for_mode(RefreshMode.PARTIAL)
 
+            region = self._transform_region(region)
             x1, y1, x2, y2 = region
             mono_image = self._prepare_partial_image(image)
 
@@ -274,6 +287,7 @@ class EPDAdapter:
         try:
             self._prepare_for_mode(RefreshMode.PARTIAL)
 
+            region = self._transform_region(region)
             x1, y1, x2, y2 = region
             mono_image = self._prepare_partial_image(image)
 

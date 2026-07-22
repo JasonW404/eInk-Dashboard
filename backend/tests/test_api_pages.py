@@ -83,6 +83,87 @@ def test_playlist_advances_from_dashboard_to_photo(tmp_path: Path, monkeypatch) 
             assert rendered.size == (800, 480)
 
 
+def test_text_page_create_list_update_and_delete(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("INKPI_UPLOAD_DIR", str(tmp_path / "uploads"))
+    renderer = FakeDisplayRenderer()
+    app = create_app(
+        _database_url(tmp_path / "text-pages.db"),
+        web_dist=tmp_path / "missing-web",
+        display_renderer=renderer,
+        admin_auth=AdminAuthPolicy(token="admin-secret"),
+    )
+    with TestClient(app) as client:
+        login = client.post("/api/auth/login", json={"token": "admin-secret"}).json()
+        headers = {"X-CSRF-Token": login["csrf_token"]}
+
+        content = '{"text":"Hello World","fontSize":32,"bold":true,"italic":false,"textAlign":"center","horizontalAlign":"center","verticalAlign":"center","paddingTop":20,"paddingBottom":20,"paddingLeft":20,"paddingRight":20}'
+        created = client.post("/api/pages/text", headers=headers, json={"name": "My Text", "content": content})
+        assert created.status_code == 201
+        page = created.json()
+        assert page["kind"] == "text"
+        assert page["name"] == "My Text"
+        assert page["content"] == content
+        text_id = page["id"]
+
+        pages = client.get("/api/pages").json()
+        text_pages = [p for p in pages if p["kind"] == "text"]
+        assert len(text_pages) == 1
+        assert text_pages[0]["id"] == text_id
+
+        updated = client.patch(f"/api/pages/{text_id}", headers=headers, json={"content": '{"text":"Updated"}'})
+        assert updated.status_code == 200
+        assert updated.json()["content"] == '{"text":"Updated"}'
+
+        deleted = client.delete(f"/api/pages/{text_id}", headers=headers)
+        assert deleted.status_code == 204
+        remaining = [p for p in client.get("/api/pages").json() if p["kind"] == "text"]
+        assert len(remaining) == 0
+
+
+def test_text_page_requires_name_and_content(tmp_path: Path) -> None:
+    app = create_app(
+        _database_url(tmp_path / "validation.db"),
+        web_dist=tmp_path / "missing-web",
+        display_renderer=FakeDisplayRenderer(),
+        admin_auth=AdminAuthPolicy(token="admin-secret"),
+    )
+    with TestClient(app) as client:
+        login = client.post("/api/auth/login", json={"token": "admin-secret"}).json()
+        headers = {"X-CSRF-Token": login["csrf_token"]}
+
+        missing_content = client.post("/api/pages/text", headers=headers, json={"name": "No Content"})
+        assert missing_content.status_code == 422
+
+        missing_name = client.post("/api/pages/text", headers=headers, json={"content": "some text"})
+        assert missing_name.status_code == 422
+
+        empty_content = client.post("/api/pages/text", headers=headers, json={"name": "Empty", "content": ""})
+        assert empty_content.status_code == 422
+
+
+def test_text_page_thumbnail_renders_via_playwright(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("INKPI_UPLOAD_DIR", str(tmp_path / "uploads"))
+    renderer = FakeDisplayRenderer()
+    app = create_app(
+        _database_url(tmp_path / "thumb.db"),
+        web_dist=tmp_path / "missing-web",
+        display_renderer=renderer,
+        admin_auth=AdminAuthPolicy(token="admin-secret"),
+    )
+    with TestClient(app) as client:
+        login = client.post("/api/auth/login", json={"token": "admin-secret"}).json()
+        headers = {"X-CSRF-Token": login["csrf_token"]}
+        content = '{"text":"Preview Test","fontSize":24}'
+        created = client.post("/api/pages/text", headers=headers, json={"name": "Thumb", "content": content})
+        text_id = created.json()["id"]
+
+        thumb = client.get(f"/api/pages/{text_id}/image")
+        assert thumb.status_code == 200
+        assert thumb.headers["content-type"] == "image/png"
+        assert len(renderer.text_renders) == 1
+        assert renderer.text_renders[0][0] == content
+
+
 def test_open_hotspot_needs_no_password_and_has_no_secret(tmp_path: Path) -> None:
     helper = InMemoryNetworkHelper()
     app = create_app(

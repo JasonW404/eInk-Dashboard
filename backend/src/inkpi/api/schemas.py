@@ -122,6 +122,7 @@ class PageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     kind: str = "photo"
+    content: str | None = None
     name: str
     sort_order: int
     interval_seconds: int
@@ -134,6 +135,12 @@ class PageUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     interval_seconds: int | None = Field(default=None, ge=10, le=86400)
     enabled: bool | None = None
+    content: str | None = None
+
+
+class TextPageCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1)
 
 
 class PageOrder(BaseModel):
