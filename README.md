@@ -1,99 +1,68 @@
 # InkPi
 
-InkPi is a modular Raspberry Pi appliance for an 800x480 Waveshare 4.26-inch
-e-ink display. It preserves the original overview dashboard and adds a native
-Codex usage page, page rotation, local controls, and contracts for a future Pi
-management portal.
+InkPi is a Raspberry Pi-centered ambient productivity terminal for a Waveshare
+4.26-inch 800×480 four-gray e-ink HAT.
 
-## Runtime Services
+## Runtime
 
-- `inkpi-core`: orchestrates page collection, rendering, rotation, configuration,
-  management facts, and dashboard controls.
-- `inkpi-display`: exclusively owns SPI/GPIO, panel lifecycle, frame history,
-  and every full/partial/skip refresh decision.
-- `inkpi-admin`: serves the local read-only admin web portal shell and status
-  APIs for the future LAN/hotspot management workflow.
-- `inkpi-ctl`: queries and controls a running core service.
-- `inkpi-preview`: renders either built-in page without display hardware.
+- `inkpi-api`: FastAPI, SQLite application state, React Web, Playwright eInk PNG rendering.
+- `inkpi-display`: sole SPI/GPIO owner; pulls revisions and PNGs from the API and applies the existing longevity-first refresh engine.
+- `inkpi-network-helper`: narrowly scoped root helper for allowlisted NetworkManager changes.
+- `inkpi-host-agent`: optional Ubuntu collector for Codex usage and GitHub contributions.
 
-Dashboard pages submit complete grayscale frames. They cannot select a refresh
-mode or access the Waveshare driver.
+There is one state path (SQLite), one browser UI (React), and one physical-panel
+owner (`inkpi-display`). The removed Python dashboard/core/admin runtime is not
+part of the current architecture.
+
+## Repository
+
+- `frontend/`: Bun, Vite, React Web, and the fixed 800×480 eInk view.
+- `backend/`: Python package, service entrypoints, and backend tests.
+- `deploy/`: systemd templates and installation scripts.
+- `scripts/`: repository-wide smoke and hardware verification scripts.
+- `docs/`: architecture, service, development, and deployment documentation.
 
 ## Development
 
-InkPi uses Python 3.12 and `uv`.
-
 ```bash
+cd backend
 uv sync --extra dev
+uv run playwright install chromium
 uv run pytest -q
-uv run inkpi-preview overview --mock-data --output tmp/overview.png
+uv run ruff check src/inkpi tests
+cd ../frontend
+bun install --frozen-lockfile
+bun run build
+cd ..
+bash scripts/smoke_test.sh
 ```
 
-Pi-only GPIO/SPI dependencies are isolated from local development:
+Run locally:
 
 ```bash
-uv sync --extra dev --extra rpi
+mkdir -p tmp
+cd backend
+uv run inkpi-api --database-url sqlite+pysqlite:///../tmp/inkpi.db
 ```
 
-The overview page continues to use `.env` for secrets and source-specific
-settings. InkPi's non-secret runtime configuration is stored at
-`~/.config/inkpi/config.json`; see
-[`config/inkpi.example.json`](config/inkpi.example.json).
-
-## Run Locally
-
-Use temporary sockets when running outside systemd:
+Open `http://127.0.0.1:8080/`. The Overview page includes the current 800×480
+eInk preview. Run the simulated display puller separately when testing the full
+two-service path:
 
 ```bash
-INKPI_DISPLAY_SOCKET=/tmp/inkpi-display.sock uv run inkpi-display
-INKPI_DISPLAY_SOCKET=/tmp/inkpi-display.sock \
-INKPI_CORE_SOCKET=/tmp/inkpi-core.sock \
-uv run inkpi-core
-uv run inkpi-ctl --socket /tmp/inkpi-core.sock pages
-uv run inkpi-admin --core-socket /tmp/inkpi-core.sock
+cd backend
+uv run inkpi-display --api-url http://127.0.0.1:8080
 ```
 
-## Raspberry Pi Deployment
-
-Install both system services from the repository:
+## Raspberry Pi
 
 ```bash
-uv sync --extra rpi
-mkdir -p ~/.config/inkpi
-printf 'INKPI_ADMIN_TOKEN=%s\n' 'replace-with-a-local-token' > ~/.config/inkpi/admin.env
-chmod 600 ~/.config/inkpi/admin.env
-sudo bash scripts/systemd/install_inkpi_services.sh
-systemctl status inkpi-display.service inkpi-core.service inkpi-admin.service
+install -d -m 700 ~/.config/inkpi
+install -m 600 deploy/env/api.env.example ~/.config/inkpi/api.env
+# Edit ~/.config/inkpi/api.env, then:
+sudo bash deploy/install_pi.sh
 ```
 
-The installer disables the legacy `eink-dashboard.service` so only
-`inkpi-display` can own the physical panel.
-
-## Built-In Pages
-
-- `overview`: weather, system load, Codex usage, and GitHub statistics.
-- `codex_usage`: native PIL rendering of Codex subscription usage. Live data
-  requires an installed and logged-in Codex CLI on the Pi.
-
-Enable or disable pages through the local core contract:
-
-```bash
-uv run inkpi-ctl pages
-uv run inkpi-ctl page codex_usage disable
-uv run inkpi-ctl page codex_usage enable
-```
-
-At least one page must remain enabled.
-
-## Architecture
-
-See [docs/architecture.md](docs/architecture.md) for module
-ownership, contracts, refresh strategy, and future management integration.
-The local admin portal design lives in
-[docs/services/admin-portal-design.md](docs/services/admin-portal-design.md).
-
-Development workflow and extension guidance live in
-[docs/guides/developer-guide.md](docs/guides/developer-guide.md). Contributors and agents
-must follow [AGENTS.md](AGENTS.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-
-Documentation is served via MkDocs: `uv run mkdocs serve`.
+See the [User Manual](docs/user-manual/index.md),
+[Architecture](docs/development/architecture.md), and
+[Developer Guide](docs/development/developer-guide.md).

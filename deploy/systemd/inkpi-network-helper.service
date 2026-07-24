@@ -1,0 +1,24 @@
+[Unit]
+Description=InkPi Privileged NetworkManager Helper
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+Group=__SERVICE_GROUP__
+WorkingDirectory=__WORKDIR__
+Environment=HOME=/root
+Environment=PATH=__SERVICE_PATH__
+Environment=PYTHONUNBUFFERED=1
+RuntimeDirectory=inkpi-network-helper
+RuntimeDirectoryMode=0770
+UMask=0007
+ExecStart=__BACKEND_BIN__/inkpi-network-helper --socket /run/inkpi-network-helper/helper.sock
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+SuccessExitStatus=143 SIGTERM
+
+[Install]
+WantedBy=multi-user.target

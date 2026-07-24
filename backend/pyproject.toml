@@ -1,0 +1,83 @@
+[project]
+name = "inkpi"
+dynamic = ["version"]
+description = "Modular Raspberry Pi e-ink dashboard appliance"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+	"fastapi>=0.128,<1",
+	"pillow>=10.0.0",
+	"playwright>=1.55,<2",
+	"requests>=2.32.0",
+	"sqlalchemy>=2.0,<3",
+	"uvicorn>=0.35,<1",
+]
+
+[project.optional-dependencies]
+rpi = [
+	"lgpio>=0.2.2.0",
+	"rpi-gpio>=0.7.1",
+	"spidev>=3.6",
+	"gpiozero>=2.0",
+]
+dev = [
+	"pytest>=8.3.0",
+	"ruff>=0.9.0",
+]
+
+[project.scripts]
+inkpi-api = "inkpi.cli:api_main"
+inkpi-display = "inkpi.cli:display_main"
+inkpi-host-agent = "inkpi.cli:host_agent_main"
+inkpi-network-helper = "inkpi.cli:network_helper_main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["inkpi*"]
+
+[tool.setuptools.package-data]
+"inkpi.hardware.waveshare_epd" = ["*.so"]
+
+[tool.setuptools.dynamic]
+version = {attr = "inkpi.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+exclude = ["src/inkpi/hardware"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",
+    "W191",
+    "W293",
+    "W291",
+    "I001",
+    "F401",
+    "F841",
+    "E402",
+    "UP035",
+    "UP042",
+    "UP015",
+    "UP031",
+    "UP036",
+    "B905",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28,<1",
+    "httpx2>=2,<3",
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.6",
+]

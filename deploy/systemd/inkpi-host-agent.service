@@ -1,0 +1,24 @@
+[Unit]
+Description=InkPi Optional Host Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__WORKDIR__
+Environment=HOME=__SERVICE_HOME__
+Environment=PATH=__SERVICE_PATH__
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=__SERVICE_HOME__/.config/inkpi/host-agent.env
+ExecStart=__BACKEND_BIN__/inkpi-host-agent
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+SuccessExitStatus=143 SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

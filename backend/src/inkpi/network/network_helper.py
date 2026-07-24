@@ -1,0 +1,251 @@
+"""Dry-run NetworkManager command planning for the future privileged helper."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+
+from inkpi.network.operations import NetworkOperationRequest
+
+
+@dataclass(frozen=True)
+class CommandStep:
+    """One shell-free command invocation planned for the helper."""
+
+    argv: tuple[str, ...]
+    secret_stdin: bool = False
+    note: str = ""
+
+    def to_payload(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class NetworkCommandPlan:
+    """Dry-run command plan for a network helper operation."""
+
+    action: str
+    steps: tuple[CommandStep, ...]
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+
+    def to_payload(self) -> dict:
+        return {
+            "action": self.action,
+            "steps": [step.to_payload() for step in self.steps],
+            "warnings": list(self.warnings),
+        }
+
+
+def plan_network_operation(request: NetworkOperationRequest) -> NetworkCommandPlan:
+    """Create a non-executing command plan for an allowlisted network operation."""
+
+    if request.action == "wifi_scan":
+        return NetworkCommandPlan(
+            action=request.action,
+            steps=(
+                CommandStep(("nmcli", "-t", "-f", "SSID,SECURITY,SIGNAL", "dev", "wifi", "list", "--rescan", "yes")),
+            ),
+        )
+
+    if request.action == "wifi_connect":
+        if not request.ssid:
+            raise ValueError("ssid is required")
+        steps = [
+            CommandStep(("nmcli", "dev", "wifi", "rescan")),
+            CommandStep(_wifi_connect_argv(request), secret_stdin=request.password_supplied),
+        ]
+        warnings = ()
+        if request.password_supplied:
+            warnings = ("password must be passed through a transient secret channel, not argv or logs",)
+        return NetworkCommandPlan(action=request.action, steps=tuple(steps), warnings=warnings)
+
+    if request.action == "wifi_forget":
+        if not request.ssid:
+            raise ValueError("ssid is required")
+        return NetworkCommandPlan(
+            action=request.action,
+            steps=(CommandStep(("nmcli", "connection", "delete", "id", request.ssid)),),
+        )
+
+    if request.action in {"hotspot_enable", "hotspot_configure"}:
+        mode = request.hotspot_mode or "visible"
+        steps = [
+            CommandStep(("nmcli", "radio", "wifi", "on")),
+            CommandStep(
+                ("nmcli", "connection", "delete", "id", "InkPi Hotspot"),
+                note="optional: replace the existing hotspot atomically",
+            ),
+            CommandStep(
+                _hotspot_add_argv(request),
+                note="create the hotspot without activating a conflicting default subnet",
+            ),
+        ]
+        if mode == "hidden":
+            steps.append(
+                CommandStep(("nmcli", "connection", "modify", "InkPi Hotspot", "802-11-wireless.hidden", "yes"))
+            )
+        if request.share_upstream:
+            steps.append(CommandStep(("nmcli", "connection", "modify", "InkPi Hotspot", "ipv4.method", "shared")))
+        up_argv = ("nmcli", "connection", "up", "InkPi Hotspot") if request.security == "open" else ("nmcli", "--ask", "connection", "up", "InkPi Hotspot")
+        steps.append(CommandStep(up_argv, secret_stdin=request.password_supplied, note="hotspot password is accepted only through helper stdin"))
+        if request.share_upstream:
+            upstream = _upstream_interface(request)
+            steps.extend(_nat_enable_steps(upstream))
+            steps.append(CommandStep(("sysctl", "-w", "net.ipv4.ip_forward=1"), note="enable IP forwarding for NAT"))
+        return NetworkCommandPlan(action=request.action, steps=tuple(steps))
+
+    if request.action == "hotspot_disable":
+        upstream = _upstream_interface(request)
+        steps = [
+            CommandStep(("nmcli", "connection", "down", "InkPi Hotspot")),
+        ]
+        steps.extend(_nat_disable_steps(upstream))
+        steps.append(
+            CommandStep(
+                ("sysctl", "-w", "net.ipv4.ip_forward=0"),
+                note="optional: disable IP forwarding (may already be off)",
+            )
+        )
+        return NetworkCommandPlan(
+            action=request.action,
+            steps=tuple(steps),
+            warnings=("helper should ignore missing inactive hotspot connections",),
+        )
+
+    if request.action == "hotspot_rotate_password":
+        return NetworkCommandPlan(
+            action=request.action,
+            steps=(
+                CommandStep(
+                    ("nmcli", "connection", "modify", "InkPi Hotspot", "wifi-sec.psk", "<generated-secret>"),
+                    secret_stdin=True,
+                    note="dry-run compatibility plan; executor rejects this legacy action",
+                ),
+                CommandStep(("nmcli", "connection", "down", "InkPi Hotspot")),
+                CommandStep(("nmcli", "connection", "up", "InkPi Hotspot")),
+            ),
+            warnings=("use hotspot_configure so the secret never enters argv",),
+        )
+
+    if request.action == "policy_reconcile":
+        return NetworkCommandPlan(
+            action=request.action,
+            steps=(
+                CommandStep(("nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status")),
+                CommandStep(("nmcli", "-t", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active")),
+            ),
+            warnings=("policy reconciliation should decide follow-up operations from fresh facts",),
+        )
+
+    raise ValueError(f"unsupported network operation: {request.action}")
+
+
+def _upstream_interface(request: NetworkOperationRequest) -> str:
+    """Determine the upstream interface for NAT rules. Defaults to eth0 until routing-table detection is added."""
+    return "eth0"
+
+
+def _nat_enable_steps(upstream: str) -> list[CommandStep]:
+    """Return iptables NAT rules for sharing upstream internet through the hotspot."""
+    return [
+        CommandStep(
+            ("iptables", "-t", "nat", "-A", "POSTROUTING", "-o", upstream, "-j", "MASQUERADE"),
+            note="NAT masquerade on upstream interface",
+        ),
+        CommandStep(
+            ("iptables", "-A", "FORWARD", "-i", "wlan0", "-o", upstream, "-j", "ACCEPT"),
+            note="allow forwarding from hotspot to upstream",
+        ),
+        CommandStep(
+            (
+                "iptables",
+                "-A",
+                "FORWARD",
+                "-i",
+                upstream,
+                "-o",
+                "wlan0",
+                "-m",
+                "state",
+                "--state",
+                "RELATED,ESTABLISHED",
+                "-j",
+                "ACCEPT",
+            ),
+            note="allow return traffic from upstream to hotspot",
+        ),
+    ]
+
+
+def _nat_disable_steps(upstream: str) -> list[CommandStep]:
+    """Return iptables NAT cleanup rules (marked optional since rules may not exist)."""
+    return [
+        CommandStep(
+            ("iptables", "-t", "nat", "-D", "POSTROUTING", "-o", upstream, "-j", "MASQUERADE"),
+            note="optional: remove NAT masquerade (may not exist)",
+        ),
+        CommandStep(
+            ("iptables", "-D", "FORWARD", "-i", "wlan0", "-o", upstream, "-j", "ACCEPT"),
+            note="optional: remove forward rule (may not exist)",
+        ),
+        CommandStep(
+            (
+                "iptables",
+                "-D",
+                "FORWARD",
+                "-i",
+                upstream,
+                "-o",
+                "wlan0",
+                "-m",
+                "state",
+                "--state",
+                "RELATED,ESTABLISHED",
+                "-j",
+                "ACCEPT",
+            ),
+            note="optional: remove return traffic rule (may not exist)",
+        ),
+    ]
+
+
+def _wifi_connect_argv(request: NetworkOperationRequest) -> tuple[str, ...]:
+    argv = ["nmcli"]
+    if request.password_supplied:
+        argv.append("--ask")
+    argv.extend(["dev", "wifi", "connect", request.ssid or ""])
+    if request.hidden_ssid:
+        argv.extend(["hidden", "yes"])
+    return tuple(argv)
+
+
+def _hotspot_add_argv(request: NetworkOperationRequest) -> tuple[str, ...]:
+    """Create an inactive AP profile on a subnet that cannot collide with common wired sharing."""
+    argv = [
+        "nmcli",
+        "connection",
+        "add",
+        "type",
+        "wifi",
+        "ifname",
+        "wlan0",
+        "con-name",
+        "InkPi Hotspot",
+        "autoconnect",
+        "yes",
+        "ssid",
+        request.ssid or "InkPi",
+        "802-11-wireless.mode",
+        "ap",
+        "connection.autoconnect-priority",
+        "999",
+        "ipv4.method",
+        "shared",
+        "ipv4.addresses",
+        "192.168.50.1/24",
+        "ipv6.method",
+        "disabled",
+    ]
+    key_mgmt = {"wpa2": "wpa-psk", "wpa3": "sae", "wpa2-wpa3": "wpa-psk sae"}.get(request.security)
+    if key_mgmt:
+        argv.extend(("wifi-sec.key-mgmt", key_mgmt))
+    return tuple(argv)

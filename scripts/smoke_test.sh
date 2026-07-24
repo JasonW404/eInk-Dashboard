@@ -1,31 +1,61 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOCK_DIR=$(mktemp -d)
-DISPLAY_SOCK="$SOCK_DIR/display.sock"
-CORE_SOCK="$SOCK_DIR/core.sock"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BACKEND_DIR="${ROOT_DIR}/backend"
+FRONTEND_DIR="${ROOT_DIR}/frontend"
+mkdir -p "${ROOT_DIR}/tmp"
+RUN_DIR="$(mktemp -d "${ROOT_DIR}/tmp/smoke.XXXXXX")"
+PORT="${INKPI_SMOKE_PORT:-18080}"
+API_PID=""
+DISPLAY_PID=""
 
 cleanup() {
-  kill "$DISPLAY_PID" "$CORE_PID" 2>/dev/null || true
-  wait "$DISPLAY_PID" "$CORE_PID" 2>/dev/null || true
-  rm -rf "$SOCK_DIR"
+  [[ -z "${DISPLAY_PID}" ]] || kill "${DISPLAY_PID}" 2>/dev/null || true
+  [[ -z "${API_PID}" ]] || kill "${API_PID}" 2>/dev/null || true
+  [[ -z "${DISPLAY_PID}" ]] || wait "${DISPLAY_PID}" 2>/dev/null || true
+  [[ -z "${API_PID}" ]] || wait "${API_PID}" 2>/dev/null || true
+  rm -rf "${RUN_DIR}"
 }
 trap cleanup EXIT
 
-# Start display service (auto-enters simulation mode without hardware)
-INKPI_DISPLAY_SOCKET="$DISPLAY_SOCK" uv run inkpi-display --socket "$DISPLAY_SOCK" &
+cd "${BACKEND_DIR}"
+uv run inkpi-api \
+  --host 127.0.0.1 \
+  --port "${PORT}" \
+  --database-url "sqlite+pysqlite:///${RUN_DIR}/inkpi.db" \
+  --web-dist "${FRONTEND_DIR}/dist" \
+  --render-base-url "http://127.0.0.1:${PORT}" >"${RUN_DIR}/api.log" 2>&1 &
+API_PID=$!
+
+for _ in $(seq 1 30); do
+  curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1 && break
+  sleep 0.25
+done
+if ! curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null; then
+  echo "API did not become healthy" >&2
+  tail -50 "${RUN_DIR}/api.log" >&2 || true
+  exit 1
+fi
+curl -fsS "http://127.0.0.1:${PORT}/" >/dev/null
+
+uv run inkpi-display --api-url "http://127.0.0.1:${PORT}" \
+  --poll-seconds 0.25 --debounce-seconds 0 >"${RUN_DIR}/display.log" 2>&1 &
 DISPLAY_PID=$!
-sleep 2
 
-# Start core service
-INKPI_DISPLAY_SOCKET="$DISPLAY_SOCK" \
-INKPI_CORE_SOCKET="$CORE_SOCK" \
-uv run inkpi-core --socket "$CORE_SOCK" --display-socket "$DISPLAY_SOCK" &
-CORE_PID=$!
-sleep 3
+curl -fsS -X POST "http://127.0.0.1:${PORT}/api/todos" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Smoke test frame"}' >/dev/null
 
-# Verify services respond
-uv run inkpi-ctl --socket "$CORE_SOCK" status
-uv run inkpi-ctl --socket "$CORE_SOCK" pages
+for _ in $(seq 1 40); do
+  if curl -fsS "http://127.0.0.1:${PORT}/api/settings/system" | grep -Eq '"last_refresh":"'; then
+    echo "API + display smoke test passed"
+    exit 0
+  fi
+  sleep 0.25
+done
 
-echo "Smoke test passed"
+echo "Display refresh telemetry was not observed" >&2
+tail -50 "${RUN_DIR}/api.log" >&2 || true
+tail -50 "${RUN_DIR}/display.log" >&2 || true
+exit 1
