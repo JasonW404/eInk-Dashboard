@@ -12,6 +12,7 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+from inkpi import __version__
 from inkpi.domain.models import CodexUsageInfo, CodexUsageWindow
 
 _logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ class CodexUsageService:
         )
         _logger.info("Spawned codex subprocess pid=%s", process.pid)
         try:
-            self._request(process, 1, "initialize", {"clientInfo": {"name": "inkpi", "version": "0.2.1"}})
+            self._request(process, 1, "initialize", {"clientInfo": {"name": "inkpi", "version": __version__}})
             self._send(process, {"method": "initialized", "params": {}})
             limits_result = self._request(process, 2, "account/rateLimits/read")
             account_result = self._request(process, 3, "account/read")

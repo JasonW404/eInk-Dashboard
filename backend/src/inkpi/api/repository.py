@@ -40,6 +40,16 @@ def initialize_schema(session_factory: sessionmaker[Session]) -> None:
             session.connection().exec_driver_sql(
                 "ALTER TABLE display_state ADD COLUMN dashboard_enabled BOOLEAN NOT NULL DEFAULT 1"
             )
+        todo_columns = {
+            row[1] for row in session.connection().exec_driver_sql("PRAGMA table_info(todos)")
+        }
+        if todo_columns and "parent_id" not in todo_columns:
+            session.connection().exec_driver_sql(
+                "ALTER TABLE todos ADD COLUMN parent_id INTEGER REFERENCES todos(id)"
+            )
+            session.connection().exec_driver_sql(
+                "CREATE INDEX ix_todos_parent_id ON todos (parent_id)"
+            )
         hotspot_columns = {
             row[1] for row in session.connection().exec_driver_sql("PRAGMA table_info(hotspot_settings)")
         }
@@ -103,6 +113,16 @@ def get_todo(session: Session, todo_id: int) -> Todo | None:
 
 
 def create_todo(session: Session, payload: TodoCreate) -> Todo:
+    if payload.parent_id is not None:
+        parent = get_todo(session, payload.parent_id)
+        if parent is None:
+            raise ValueError("parent todo not found")
+        if parent.parent_id is not None:
+            grandparent = get_todo(session, parent.parent_id)
+            if grandparent is None:
+                raise ValueError("parent todo hierarchy is invalid")
+            if grandparent.parent_id is not None:
+                raise ValueError("todos support a maximum of 3 levels")
     next_order = session.scalar(select(func.coalesce(func.max(Todo.sort_order), -1) + 1))
     todo = Todo(sort_order=int(next_order or 0), **payload.model_dump())
     session.add(todo)
@@ -121,10 +141,16 @@ def update_todo(session: Session, todo: Todo, payload: TodoUpdate) -> Todo:
 
 
 def delete_todo(session: Session, todo: Todo) -> None:
-    removed_order = todo.sort_order
-    session.delete(todo)
+    child_ids = list(session.scalars(select(Todo.id).where(Todo.parent_id == todo.id)))
+    descendant_ids = list(
+        session.scalars(select(Todo.id).where(Todo.parent_id.in_(child_ids)))
+    ) if child_ids else []
+    removed_ids = [todo.id, *child_ids, *descendant_ids]
+    for item in list(session.scalars(select(Todo).where(Todo.id.in_(removed_ids)))):
+        session.delete(item)
     session.flush()
-    session.execute(update(Todo).where(Todo.sort_order > removed_order).values(sort_order=Todo.sort_order - 1))
+    for sort_order, item in enumerate(list_todos(session)):
+        item.sort_order = sort_order
     bump_revision(session)
 
 

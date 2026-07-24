@@ -1,6 +1,6 @@
 [project]
 name = "inkpi"
-version = "0.2.2"
+dynamic = ["version"]
 description = "Modular Raspberry Pi e-ink dashboard appliance"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -41,6 +41,9 @@ include = ["inkpi*"]
 
 [tool.setuptools.package-data]
 "inkpi.hardware.waveshare_epd" = ["*.so"]
+
+[tool.setuptools.dynamic]
+version = {attr = "inkpi.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

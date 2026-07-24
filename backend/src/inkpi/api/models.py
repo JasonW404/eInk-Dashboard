@@ -21,6 +21,9 @@ class Todo(Base):
     __tablename__ = "todos"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("todos.id"), nullable=True, index=True
+    )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     display_on_eink: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

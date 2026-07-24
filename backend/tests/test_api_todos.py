@@ -85,6 +85,37 @@ def test_todo_api_validates_payloads_and_order(tmp_path: Path) -> None:
         assert duplicate_order.status_code == 400
 
 
+def test_todos_support_three_levels_and_delete_subtree(tmp_path: Path) -> None:
+    with TestClient(
+        create_app(
+            _database_url(tmp_path / "nested.db"),
+            display_renderer=FakeDisplayRenderer(),
+        )
+    ) as client:
+        root = client.post("/api/todos", json={"title": "Root"}).json()
+        child = client.post(
+            "/api/todos", json={"title": "Child", "parent_id": root["id"]}
+        ).json()
+        grandchild = client.post(
+            "/api/todos", json={"title": "Grandchild", "parent_id": child["id"]}
+        ).json()
+
+        assert root["parent_id"] is None
+        assert child["parent_id"] == root["id"]
+        assert grandchild["parent_id"] == child["id"]
+        too_deep = client.post(
+            "/api/todos", json={"title": "Too deep", "parent_id": grandchild["id"]}
+        )
+        assert too_deep.status_code == 400
+        assert too_deep.json()["detail"] == "todos support a maximum of 3 levels"
+        assert client.post(
+            "/api/todos", json={"title": "Orphan", "parent_id": 9999}
+        ).status_code == 400
+
+        assert client.delete(f"/api/todos/{root['id']}").status_code == 204
+        assert client.get("/api/todos").json() == []
+
+
 def test_todos_persist_across_app_restarts(tmp_path: Path) -> None:
     database_url = _database_url(tmp_path / "persistent.db")
 

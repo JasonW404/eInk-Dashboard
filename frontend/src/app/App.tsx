@@ -5,7 +5,10 @@ import 'cropperjs/dist/cropper.css'
 import { api, apiPath, type DisplayPage, type DisplayRevision, type HotspotSecurity, type HotspotSettings, type LatestReport, type SystemInfo, type Todo, type TodoDisplaySettings, type TodoSort } from '../api/client'
 import { appPath, routeFromPathname, type AppRoute } from './basePath'
 
+declare const __APP_VERSION__: string
+
 type Route = AppRoute
+type ThemeMode = 'auto' | 'light' | 'dark'
 
 const routes: Array<{ path: Route; label: string }> = [
   { path: '/', label: 'Overview' },
@@ -21,6 +24,23 @@ function currentRoute(): Route {
 export function App() {
   const [route, setRoute] = useState<Route>(currentRoute)
   const [authenticated, setAuthenticated] = useState<boolean | null>(null)
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const saved = window.localStorage.getItem('inkpi-theme')
+    return saved === 'light' || saved === 'dark' ? saved : 'auto'
+  })
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const applyTheme = () => {
+      const resolved = theme === 'auto' ? (media.matches ? 'dark' : 'light') : theme
+      document.documentElement.dataset.theme = resolved
+      document.documentElement.style.colorScheme = resolved
+    }
+    applyTheme()
+    media.addEventListener('change', applyTheme)
+    window.localStorage.setItem('inkpi-theme', theme)
+    return () => media.removeEventListener('change', applyTheme)
+  }, [theme])
 
   useEffect(() => {
     const navigate = () => setRoute(currentRoute())
@@ -38,18 +58,21 @@ export function App() {
   }
 
   if (authenticated === null) return <div className="auth-loading">INKPI</div>
-  if (!authenticated) return <LoginPage onLogin={() => setAuthenticated(true)} />
+  if (!authenticated) return <LoginPage onLogin={() => setAuthenticated(true)} theme={theme} setTheme={setTheme} />
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <Brand />
         <Navigation route={route} navigate={navigate} />
-        <button className="logout-button" onClick={() => void api.logout().then(() => setAuthenticated(false))}>LOG OUT</button>
-        <p className="sidebar-foot">RASPBERRY PI / 800×480</p>
+        <div className="sidebar-footer">
+          <ThemeSwitch value={theme} onChange={setTheme} />
+          <button className="logout-button" onClick={() => void api.logout().then(() => setAuthenticated(false))}>LOG OUT</button>
+          <p className="sidebar-foot">InkPi v{__APP_VERSION__}</p>
+        </div>
       </aside>
       <main className="main-content">
-        <header className="mobile-header"><Brand /></header>
+        <header className="mobile-header"><Brand /><ThemeSwitch value={theme} onChange={setTheme} /></header>
         {route === '/' && <OverviewPage />}
         {route === '/todo' && <TodoPage />}
         {route === '/pages' && <PagesPage />}
@@ -62,7 +85,25 @@ export function App() {
   )
 }
 
-function LoginPage({ onLogin }: { onLogin: () => void }) {
+function ThemeSwitch({ value, onChange }: { value: ThemeMode; onChange: (mode: ThemeMode) => void }) {
+  const modes: ThemeMode[] = ['auto', 'light', 'dark']
+  return (
+    <div className="theme-toggle" role="group" aria-label="Color theme">
+      {modes.map((mode) => (
+        <button
+          key={mode}
+          className={value === mode ? 'active' : ''}
+          onClick={() => onChange(mode)}
+          aria-pressed={value === mode}
+        >
+          {mode.charAt(0).toUpperCase() + mode.slice(1)}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function LoginPage({ onLogin, theme, setTheme }: { onLogin: () => void; theme: ThemeMode; setTheme: (mode: ThemeMode) => void }) {
   const [token, setToken] = useState('')
   const [remember, setRemember] = useState(false)
   const [error, setError] = useState('')
@@ -85,7 +126,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
   return (
     <main className="login-page">
       <form className="login-card" onSubmit={(event) => { event.preventDefault(); void login() }}>
-        <Brand />
+        <div className="login-card-top"><Brand /><ThemeSwitch value={theme} onChange={setTheme} /></div>
         <div><p className="eyebrow">DEVICE ADMINISTRATION</p><h1>Sign in to InkPi</h1></div>
         <label>Admin token<input type="password" value={token} autoFocus autoComplete="current-password" onChange={(event) => setToken(event.target.value)} /></label>
         <label className="remember-login"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Remember login</label>
@@ -126,6 +167,7 @@ function OverviewPage() {
   const [revision, setRevision] = useState<DisplayRevision | null>(null)
   const [reports, setReports] = useState<LatestReport[]>([])
   const [online, setOnline] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -141,7 +183,9 @@ function OverviewPage() {
     return () => { active = false }
   }, [])
 
-  const visibleTodos = todos.filter((todo) => todo.display_on_eink).slice(0, 4)
+  const visibleTodos = todos
+    .filter((todo) => todo.display_on_eink && !todo.completed)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   const codex = reports.find((report) => report.type === 'codex')?.payload
   const github = reports.find((report) => report.type === 'github')?.payload
   const weeklyUsed = codexWeeklyUsed(codex)
@@ -151,51 +195,64 @@ function OverviewPage() {
   return (
     <Page title="Overview" eyebrow="DEVICE AT A GLANCE">
       <section className="overview-grid">
-        <Panel title="Device Status" className="device-panel">
-          <Status online={online} />
-          <DefinitionList rows={[
-            ['Device', 'InkPi'],
-            ['API', online ? 'Connected' : 'Unavailable'],
-            ['Version', 'v1.0-dev'],
-          ]} />
-        </Panel>
-        <Panel title="Codex Usage">
-          <p className="metric-label">WEEKLY USAGE</p>
-          <p className="metric-value">{weeklyUsed === null ? '—' : `${weeklyUsed}%`}</p>
-          <div className="progress"><span style={{ width: `${weeklyUsed ?? 0}%` }} /></div>
-          <p className="muted">{codex ? `Plan ${String(codex.plan ?? '—')}` : 'Waiting for host agent report'}</p>
-        </Panel>
-        <Panel title="GitHub Activity">
-          <p className="metric-label">THIS MONTH</p>
-          <div className="split-metrics"><strong>{githubCommits ?? '—'}<small>COMMITS</small></strong><strong>{githubPrs ?? '—'}<small>PRS</small></strong></div>
-          <WebContributionCalendar payload={github} />
-          <p className="muted">{github ? 'Latest host agent report' : 'Waiting for host agent report'}</p>
-        </Panel>
-        <Panel title="Todo Summary" className="todo-summary-panel">
-          <p className="metric-label">ON EINK</p>
+        <div className="overview-left">
+          <Panel title="Codex Usage">
+            <p className="metric-label">WEEKLY USAGE</p>
+            <p className="metric-value">{weeklyUsed === null ? '—' : `${weeklyUsed}%`}</p>
+            <div className="progress"><span style={{ width: `${weeklyUsed ?? 0}%` }} /></div>
+            <p className="muted">{codex ? `Plan ${String(codex.plan ?? '—')}` : 'Waiting for host agent report'}</p>
+          </Panel>
+          <Panel title="GitHub Activity">
+            <div className="github-content">
+              <div className="split-metrics">
+                <strong>{githubCommits ?? '—'}<small>COMMITS</small></strong>
+                <strong>{githubPrs ?? '—'}<small>PRS</small></strong>
+              </div>
+              <span className="github-divider" aria-hidden="true" />
+              <WebContributionCalendar payload={github} />
+            </div>
+          </Panel>
+          <Panel title="Device Status">
+            <Status online={online} />
+            <DefinitionList rows={[
+              ['Device', 'InkPi'],
+              ['API', online ? 'Connected' : 'Unavailable'],
+              ['Version', `v${__APP_VERSION__}`],
+            ]} />
+          </Panel>
+          <Panel title="eInk Preview" className="preview-panel">
+            <div className="preview-frame">
+              {revision ? (
+                <img
+                  className="preview-zoomable"
+                  src={`${apiPath('/api/display/image')}?revision=${revision.revision}`}
+                  alt="Current 800 by 480 eInk output"
+                  onClick={() => setPreviewOpen(true)}
+                />
+              ) : (
+                <span>DISPLAY PREVIEW UNAVAILABLE</span>
+              )}
+            </div>
+            {previewOpen && revision && (
+              <div className="preview-lightbox" onClick={() => setPreviewOpen(false)}>
+                <img src={`${apiPath('/api/display/image')}?revision=${revision.revision}`} alt="Enlarged eInk output" />
+              </div>
+            )}
+            <div className="preview-meta">
+              <span>REVISION #{revision?.revision ?? '—'}</span>
+              <span>UPDATED {revision ? new Date(revision.updated_at).toLocaleString() : '—'}</span>
+            </div>
+          </Panel>
+        </div>
+        <Panel title="Todo Summary" className="overview-right">
+          <p className="metric-label">ON EINK · ACTIVE</p>
           {visibleTodos.length === 0
-            ? <p className="muted">No visible todos</p>
+            ? <p className="muted">No active visible todos</p>
             : <ul className="summary-list">{visibleTodos.map((todo) => (
-              <li key={todo.id} className={todo.completed ? 'done' : ''}>{todo.completed ? '■' : '□'} {todo.title}</li>
+              <li key={todo.id}>□ {todo.title}</li>
             ))}</ul>}
         </Panel>
       </section>
-      <Panel title="eInk Preview" className="preview-panel">
-        <div className="preview-frame">
-          {revision ? (
-            <img
-              src={`${apiPath('/api/display/image')}?revision=${revision.revision}`}
-              alt="Current 800 by 480 eInk output"
-            />
-          ) : (
-            <span>DISPLAY PREVIEW UNAVAILABLE</span>
-          )}
-        </div>
-        <div className="preview-meta">
-          <span>REVISION #{revision?.revision ?? '—'}</span>
-          <span>UPDATED {revision ? new Date(revision.updated_at).toLocaleString() : '—'}</span>
-        </div>
-      </Panel>
     </Page>
   )
 }
@@ -216,9 +273,12 @@ function WebContributionCalendar({ payload }: { payload: Record<string, unknown>
     const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
     cells.push({ key, count: counts.get(key) ?? 0 })
   }
-  return <div className="web-calendar" aria-label="Current month GitHub contributions">{cells.map((cell, index) => cell
+  return <div className="web-calendar-wrap" aria-label="Current month GitHub contributions">
+    <div className="web-calendar-weekdays">{['S','M','T','W','T','F','S'].map((d, i) => <span key={`${d}-${i}`}>{d}</span>)}</div>
+    <div className="web-calendar">{cells.map((cell, index) => cell
     ? <i key={cell.key} className={cell.count === 0 ? '' : cell.count < 4 ? 'low' : 'high'} title={`${cell.key}: ${cell.count} contributions`} />
     : <i key={`blank-${index}`} className="blank" />)}</div>
+  </div>
 }
 
 function TodoPage() {
@@ -228,6 +288,7 @@ function TodoPage() {
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all')
   const [sort, setSort] = useState<TodoSort>('manual')
   const [displaySettings, setDisplaySettings] = useState<TodoDisplaySettings>({ show_completed: true, sort: 'manual' })
+  const [editor, setEditor] = useState<{ mode: 'edit' | 'child'; todo: Todo } | null>(null)
 
   const load = () => Promise.all([api.todos(), api.todoDisplaySettings()]).then(([items, settings]) => { setTodos(items); setDisplaySettings(settings) }).catch((reason: Error) => setError(reason.message))
   useEffect(() => { void load() }, [])
@@ -249,15 +310,20 @@ function TodoPage() {
     setTitle('')
   }
 
-  const move = (index: number, offset: number) => {
-    const target = index + offset
-    if (target < 0 || target >= todos.length) return
+  const move = (todo: Todo, offset: number) => {
+    const siblings = todos.filter((item) => item.parent_id === todo.parent_id)
+    const siblingIndex = siblings.findIndex((item) => item.id === todo.id)
+    const targetSibling = siblings[siblingIndex + offset]
+    if (!targetSibling) return
     const reordered = [...todos]
+    const index = reordered.findIndex((item) => item.id === todo.id)
+    const target = reordered.findIndex((item) => item.id === targetSibling.id)
     ;[reordered[index], reordered[target]] = [reordered[target], reordered[index]]
     void mutate(() => api.reorderTodos(reordered.map((todo) => todo.id)))
   }
 
-  const visibleTodos = sortTodos(todos.filter((todo) => filter === 'all' || (filter === 'completed' ? todo.completed : !todo.completed)), sort)
+  const filteredTodos = todos.filter((todo) => filter === 'all' || (filter === 'completed' ? todo.completed : !todo.completed))
+  const visibleTodos = todoTreeRows(filteredTodos, sort)
   const saveDisplaySettings = (next: TodoDisplaySettings) => {
     setDisplaySettings(next)
     void mutate(() => api.updateTodoDisplaySettings(next))
@@ -279,8 +345,10 @@ function TodoPage() {
       {error && <p className="error-message">{error}</p>}
       <section className="todo-list">
         {visibleTodos.length === 0 && <div className="empty-state">{todos.length === 0 ? 'NO TODOS YET' : 'NO TODOS MATCH THIS FILTER'}</div>}
-        {visibleTodos.map((todo, index) => (
-          <article className="todo-item" key={todo.id}>
+        {visibleTodos.map(({ todo, depth }) => {
+          const siblings = todos.filter((item) => item.parent_id === todo.parent_id)
+          const siblingIndex = siblings.findIndex((item) => item.id === todo.id)
+          return <article className={`todo-item todo-depth-${depth}`} style={{ '--todo-depth': depth } as React.CSSProperties} key={todo.id}>
             <button className="check-button" onClick={() => void mutate(() => api.updateTodo(todo.id, { completed: !todo.completed }))}>
               {todo.completed ? '■' : '□'}
             </button>
@@ -293,18 +361,46 @@ function TodoPage() {
               SHOW ON INKPI
             </label>
             <div className="todo-actions">
-              {sort === 'manual' && filter === 'all' && <><button disabled={index === 0} onClick={() => move(index, -1)}>↑</button><button disabled={index === todos.length - 1} onClick={() => move(index, 1)}>↓</button></>}
-              <button onClick={() => {
-                const next = window.prompt('Edit todo', todo.title)?.trim()
-                if (next && next !== todo.title) void mutate(() => api.updateTodo(todo.id, { title: next }))
-              }}>EDIT</button>
+              {sort === 'manual' && filter === 'all' && <><button aria-label={`Move ${todo.title} up`} disabled={siblingIndex === 0} onClick={() => move(todo, -1)}>↑</button><button aria-label={`Move ${todo.title} down`} disabled={siblingIndex === siblings.length - 1} onClick={() => move(todo, 1)}>↓</button></>}
+              {depth < 2 && <button onClick={() => setEditor({ mode: 'child', todo })}>+ CHILD</button>}
+              <button onClick={() => setEditor({ mode: 'edit', todo })}>EDIT</button>
               <button onClick={() => void mutate(() => api.deleteTodo(todo.id))}>DELETE</button>
             </div>
           </article>
-        ))}
+        })}
       </section>
+      {editor && <TodoEditor
+        mode={editor.mode}
+        todo={editor.todo}
+        onCancel={() => setEditor(null)}
+        onConfirm={async (nextTitle) => {
+          await mutate(() => editor.mode === 'edit'
+            ? api.updateTodo(editor.todo.id, { title: nextTitle })
+            : api.createTodo(nextTitle, editor.todo.id))
+          setEditor(null)
+        }}
+      />}
     </Page>
   )
+}
+
+function TodoEditor({ mode, todo, onCancel, onConfirm }: { mode: 'edit' | 'child'; todo: Todo; onCancel: () => void; onConfirm: (title: string) => Promise<void> }) {
+  const [title, setTitle] = useState(mode === 'edit' ? todo.title : '')
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { inputRef.current?.focus() }, [])
+  const submit = () => {
+    const next = title.trim()
+    if (next && (mode === 'child' || next !== todo.title)) void onConfirm(next)
+  }
+  return <div className="crop-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel() }}>
+    <section className="todo-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="todo-editor-title">
+      <header><div><p className="eyebrow">{mode === 'edit' ? 'UPDATE ITEM' : 'NEW CHILD ITEM'}</p><h2 id="todo-editor-title">{mode === 'edit' ? 'Edit todo' : `Add under “${todo.title}”`}</h2></div><button aria-label="Close" onClick={onCancel}>×</button></header>
+      <form onSubmit={(event) => { event.preventDefault(); submit() }}>
+        <label>TODO TITLE<input ref={inputRef} value={title} maxLength={500} onChange={(event) => setTitle(event.target.value)} /></label>
+        <footer><button type="button" onClick={onCancel}>CANCEL</button><button type="submit" className="primary-button" disabled={!title.trim()}>{mode === 'edit' ? 'SAVE CHANGES' : 'ADD CHILD'}</button></footer>
+      </form>
+    </section>
+  </div>
 }
 
 function TodoSortOptions({ includeManual }: { includeManual?: boolean }) {
@@ -323,6 +419,24 @@ function sortTodos(todos: Todo[], sort: TodoSort): Todo[] {
     }
     return left.sort_order - right.sort_order
   })
+}
+
+function todoTreeRows(todos: Todo[], sort: TodoSort): Array<{ todo: Todo; depth: number }> {
+  const included = new Set(todos.map((todo) => todo.id))
+  const children = new Map<number | null, Todo[]>()
+  todos.forEach((todo) => {
+    const parent = todo.parent_id !== null && included.has(todo.parent_id) ? todo.parent_id : null
+    children.set(parent, [...(children.get(parent) ?? []), todo])
+  })
+  const rows: Array<{ todo: Todo; depth: number }> = []
+  const visit = (parent: number | null, depth: number) => {
+    sortTodos(children.get(parent) ?? [], sort).forEach((todo) => {
+      rows.push({ todo, depth })
+      visit(todo.id, Math.min(depth + 1, 2))
+    })
+  }
+  visit(null, 0)
+  return rows
 }
 
 function PagesPage() {
@@ -633,37 +747,53 @@ function SettingsPage() {
 
   return (
     <Page title="Settings" eyebrow="DEVICE CONFIGURATION">
-      <div className="settings-grid">
-        <Panel title="Device">
-          <DefinitionList rows={[["Name", system?.device_name ?? '—'], ["Timezone", Intl.DateTimeFormat().resolvedOptions().timeZone], ["Firmware", system?.firmware_version ?? '—']]} />
-        </Panel>
-        <Panel title="Network" className="network-panel">
-          <h3 className="settings-subheading">WiFi Hotspot</h3>
+      <section className="settings-grid">
+        <div className="settings-left">
+          <Panel title="Device">
+            <DefinitionList rows={[
+              ['Name', system?.device_name ?? '—'],
+              ['Timezone', Intl.DateTimeFormat().resolvedOptions().timeZone],
+              ['Firmware', system?.firmware_version ?? '—'],
+            ]} />
+          </Panel>
+          <Panel title="Display Information">
+            <DefinitionList rows={[
+              ['Resolution', '800 × 480'],
+              ['Last refresh', system?.last_refresh ? new Date(system.last_refresh).toLocaleString() : 'Not reported'],
+              ['Current revision', String(system?.display_revision ?? '—')],
+              ['Device uptime', formatUptime(system?.uptime_seconds)],
+            ]} />
+          </Panel>
+        </div>
+        <Panel title="Network" className="settings-right">
           <div className="network-status-row">
             <Status online={network?.enabled ?? false} />
             <span>{network?.enabled ? 'HOTSPOT ON' : 'HOTSPOT OFF'}</span>
           </div>
-          <div className="settings-form">
-            <label>SSID<input value={ssid} maxLength={32} onChange={(event) => setSsid(event.target.value)} /></label>
-            <label>Security<select value={security} onChange={(event) => setSecurity(event.target.value as HotspotSecurity)}><option value="wpa2">WPA2</option><option value="wpa3">WPA3</option><option value="wpa2-wpa3">WPA2 / WPA3</option><option value="open">Open (no password)</option></select></label>
-            <label className="password-setting">Password<div className="password-field"><input disabled={security === 'open'} type={showPassword ? 'text' : 'password'} value={password} minLength={8} maxLength={63} autoComplete="new-password" onChange={(event) => {
-              setPassword(event.target.value)
-            }} placeholder={security === 'open' ? 'Not required for an open network' : 'Stored in protected NetworkManager profile'} /><button disabled={security === 'open'} type="button" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword} aria-label={showPassword ? 'Hide hotspot password' : 'Show hotspot password'}>{showPassword ? 'HIDE' : 'SHOW'}</button></div></label>
+          <div className="network-body">
+            <div className="network-form-col">
+              <div className="settings-form">
+                <label>SSID<input value={ssid} maxLength={32} onChange={(event) => setSsid(event.target.value)} /></label>
+                <label>Security<select value={security} onChange={(event) => setSecurity(event.target.value as HotspotSecurity)}><option value="wpa2">WPA2</option><option value="wpa3">WPA3</option><option value="wpa2-wpa3">WPA2 / WPA3</option><option value="open">Open (no password)</option></select></label>
+                <label className="password-setting">Password<div className="password-field"><input disabled={security === 'open'} type={showPassword ? 'text' : 'password'} value={password} minLength={8} maxLength={63} autoComplete="new-password" onChange={(event) => {
+                  setPassword(event.target.value)
+                }} placeholder={security === 'open' ? 'Not required for an open network' : 'Stored in protected NetworkManager profile'} /><button disabled={security === 'open'} type="button" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword} aria-label={showPassword ? 'Hide hotspot password' : 'Show hotspot password'}>{showPassword ? 'HIDE' : 'SHOW'}</button></div></label>
+              </div>
+              <DefinitionList rows={[
+                ['Connected devices', String(network?.connected_clients ?? '—')],
+                ['Updated', network ? new Date(network.updated_at).toLocaleString() : '—'],
+              ]} />
+              <div className="settings-actions">
+                <button className="primary-button" disabled={saving || !ssid.trim()} onClick={() => void save(true)}>{network?.enabled ? 'Apply & Restart' : 'Enable Hotspot'}</button>
+                <button disabled={saving || !network?.enabled} onClick={() => void save(false)}>Disable</button>
+              </div>
+              {message && <p className="settings-message" role="status">{message}</p>}
+              <p className="muted">The password is stored only in NetworkManager's protected hotspot profile and is available after login.</p>
+            </div>
+            {network?.enabled && (security === 'open' || password) && <div className="wifi-qr"><QRCodeSVG value={wifiQrValue(ssid, password, security)} size={132} level="M" marginSize={2} title={`Connect to ${ssid}`} /><p>Scan to join {ssid}</p></div>}
           </div>
-          <DefinitionList rows={[["Connected devices", String(network?.connected_clients ?? '—')], ["Updated", network ? new Date(network.updated_at).toLocaleString() : '—']]} />
-          <div className="settings-actions">
-            <button className="primary-button" disabled={saving || !ssid.trim()} onClick={() => void save(true)}>{network?.enabled ? 'Apply & Restart' : 'Enable Hotspot'}</button>
-            <button disabled={saving || !network?.enabled} onClick={() => void save(false)}>Disable</button>
-          </div>
-          {message && <p className="settings-message" role="status">{message}</p>}
-          {network?.enabled && (security === 'open' || password) && <div className="wifi-qr"><QRCodeSVG value={wifiQrValue(ssid, password, security)} size={132} level="M" marginSize={2} title={`Connect to ${ssid}`} /><p>Scan to join {ssid}</p></div>}
-          <p className="muted">The password is stored only in NetworkManager's protected hotspot profile and is available after login.</p>
         </Panel>
-        <Panel title="Display Information">
-          <DefinitionList rows={[["Resolution", "800 × 480"], ["Last refresh", system?.last_refresh ? new Date(system.last_refresh).toLocaleString() : 'Not reported'], ["Current revision", String(system?.display_revision ?? '—')], ["Device uptime", formatUptime(system?.uptime_seconds)]]} />
-          <p className="muted">Refresh interval, partial count, and full-refresh policy remain private to the display service.</p>
-        </Panel>
-      </div>
+      </section>
     </Page>
   )
 }

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from importlib.metadata import PackageNotFoundError, version
 import io
 import os
 from pathlib import Path
@@ -23,6 +22,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from inkpi.network.auth import AdminAuthError, AdminAuthPolicy, extract_bearer_token
 from inkpi.network.helper_client import DEFAULT_HELPER_SOCKET, HelperClient
 from inkpi.network.operations import NetworkHelper, build_operation_request
+from inkpi import __version__
 from inkpi.api import repository
 from inkpi.api.database import build_engine, build_session_factory, get_session
 from inkpi.api.display_renderer import (
@@ -122,7 +122,7 @@ def create_app(
         renderer.close()
         engine.dispose()
 
-    app = FastAPI(title="InkPi API", version="1.0", lifespan=lifespan)
+    app = FastAPI(title="InkPi API", version=__version__, lifespan=lifespan)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -174,8 +174,11 @@ def create_app(
 
     @app.post("/api/todos", response_model=TodoRead, status_code=status.HTTP_201_CREATED)
     def create_todo(payload: TodoCreate, session: SessionDependency) -> object:
-        with session.begin():
-            return repository.create_todo(session, payload)
+        try:
+            with session.begin():
+                return repository.create_todo(session, payload)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 
     @app.patch("/api/todos/{todo_id}", response_model=TodoRead)
     def update_todo(todo_id: int, payload: TodoUpdate, session: SessionDependency) -> object:
@@ -357,7 +360,7 @@ def create_app(
         state = repository.get_display_state(session)
         return SystemInfoRead(
             device_name=socket.gethostname(),
-            firmware_version=_package_version(),
+            firmware_version=__version__,
             uptime_seconds=_device_uptime_seconds(),
             display_revision=state.revision,
             last_refresh=state.last_refresh,
@@ -689,12 +692,6 @@ def _device_uptime_seconds() -> float:
     except (OSError, ValueError, IndexError):
         return 0.0
 
-
-def _package_version() -> str:
-    try:
-        return version("inkpi")
-    except PackageNotFoundError:
-        return "development"
 
 
 def _wifi_qr_payload(ssid: str, password: str | None, security: str = "wpa2") -> str:

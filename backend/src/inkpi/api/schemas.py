@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class TodoCreate(BaseModel):
     title: str = Field(min_length=1, max_length=500)
+    parent_id: int | None = Field(default=None, gt=0)
     completed: bool = False
     display_on_eink: bool = True
 
@@ -41,6 +42,7 @@ class TodoRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    parent_id: int | None
     title: str
     completed: bool
     display_on_eink: bool

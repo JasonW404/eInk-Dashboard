@@ -1,5 +1,6 @@
 export interface Todo {
   id: number
+  parent_id: number | null
   title: string
   completed: boolean
   display_on_eink: boolean
@@ -153,9 +154,9 @@ export const api = {
   reorderPages: (orderedIds: number[]) => request<DisplayPage[]>('/api/pages/order', {
     method: 'PUT', headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined, body: JSON.stringify({ ordered_ids: orderedIds }),
   }),
-  createTodo: (title: string) => request<Todo>('/api/todos', {
+  createTodo: (title: string, parentId: number | null = null) => request<Todo>('/api/todos', {
     method: 'POST',
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, parent_id: parentId }),
   }),
   updateTodo: (id: number, changes: TodoChanges) => request<Todo>(`/api/todos/${id}`, {
     method: 'PATCH',
