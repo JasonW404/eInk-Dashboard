@@ -196,13 +196,13 @@ function OverviewPage() {
     <Page title="Overview" eyebrow="DEVICE AT A GLANCE">
       <section className="overview-grid">
         <div className="overview-left">
-          <Panel title="Codex Usage">
+          <Panel title="Codex Usage" className="overview-codex">
             <p className="metric-label">WEEKLY USAGE</p>
             <p className="metric-value">{weeklyUsed === null ? '—' : `${weeklyUsed}%`}</p>
             <div className="progress"><span style={{ width: `${weeklyUsed ?? 0}%` }} /></div>
             <p className="muted">{codex ? `Plan ${String(codex.plan ?? '—')}` : 'Waiting for host agent report'}</p>
           </Panel>
-          <Panel title="GitHub Activity">
+          <Panel title="GitHub Activity" className="overview-github">
             <div className="github-content">
               <div className="split-metrics">
                 <strong>{githubCommits ?? '—'}<small>COMMITS</small></strong>
@@ -212,7 +212,7 @@ function OverviewPage() {
               <WebContributionCalendar payload={github} />
             </div>
           </Panel>
-          <Panel title="Device Status">
+          <Panel title="Device Status" className="overview-device">
             <Status online={online} />
             <DefinitionList rows={[
               ['Device', 'InkPi'],
@@ -220,7 +220,7 @@ function OverviewPage() {
               ['Version', `v${__APP_VERSION__}`],
             ]} />
           </Panel>
-          <Panel title="eInk Preview" className="preview-panel">
+          <Panel title="eInk Preview" className="preview-panel overview-preview">
             <div className="preview-frame">
               {revision ? (
                 <img
@@ -244,7 +244,7 @@ function OverviewPage() {
             </div>
           </Panel>
         </div>
-        <Panel title="Todo Summary" className="overview-right">
+        <Panel title="Todo Summary" className="overview-right overview-todo">
           <p className="metric-label">ON EINK · ACTIVE</p>
           {visibleTodos.length === 0
             ? <p className="muted">No active visible todos</p>
@@ -285,13 +285,21 @@ function TodoPage() {
   const [todos, setTodos] = useState<Todo[]>([])
   const [title, setTitle] = useState('')
   const [error, setError] = useState('')
-  const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all')
-  const [sort, setSort] = useState<TodoSort>('manual')
+  const [filter, setFilter] = useState<'all' | 'active' | 'completed'>(() => {
+    const saved = window.localStorage.getItem('inkpi-todo-filter')
+    return saved === 'active' || saved === 'completed' ? saved : 'all'
+  })
+  const [sort, setSort] = useState<TodoSort>(() => {
+    const saved = window.localStorage.getItem('inkpi-todo-sort')
+    return (saved as TodoSort) || 'manual'
+  })
   const [displaySettings, setDisplaySettings] = useState<TodoDisplaySettings>({ show_completed: true, sort: 'manual' })
   const [editor, setEditor] = useState<{ mode: 'edit' | 'child'; todo: Todo } | null>(null)
 
   const load = () => Promise.all([api.todos(), api.todoDisplaySettings()]).then(([items, settings]) => { setTodos(items); setDisplaySettings(settings) }).catch((reason: Error) => setError(reason.message))
   useEffect(() => { void load() }, [])
+  useEffect(() => { window.localStorage.setItem('inkpi-todo-filter', filter) }, [filter])
+  useEffect(() => { window.localStorage.setItem('inkpi-todo-sort', sort) }, [sort])
 
   const mutate = async (operation: () => Promise<unknown>) => {
     setError('')

@@ -307,21 +307,31 @@ dt { color: #666; } dd { margin: 0; font-weight: 700; text-align: right; }
   .app-shell { display: block; padding-bottom: 66px; }
   .sidebar { display: none; }
   .main-content { padding: 0 18px 50px; }
-  .mobile-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding: 22px 0; border-bottom: 1px solid #d9d9d9; margin-bottom: 30px; }
+  .mobile-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #d9d9d9; margin-bottom: 16px; }
+  .mobile-header .brand strong { font-size: 18px; }
+  .mobile-header .brand span { display: none; }
+  .page-heading { display: none; }
   .mobile-nav { display: block; position: fixed; z-index: 10; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #000; }
   .mobile-nav .nav-list { margin: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
-  .mobile-nav .nav-item { border: 0; border-top: 2px solid transparent; padding: 16px 4px; text-align: center; font-size: 10px; }
+  .mobile-nav .nav-item { border: 0; border-top: 2px solid transparent; padding: 14px 4px; text-align: center; font-size: 10px; }
   .mobile-nav .nav-item.active { border-color: #000; }
   .overview-grid { grid-template-columns: 1fr; }
-  .overview-right { min-height: 300px; }
+  .overview-left { display: contents; }
+  .overview-codex { order: 1; }
+  .overview-github { order: 2; }
+  .overview-todo { order: 3; }
+  .overview-device { order: 4; }
+  .overview-preview { order: 5; }
+  .overview-right { min-height: auto; }
   .github-content { grid-template-columns: max-content 1px minmax(0, 1fr); }
   .settings-grid { grid-template-columns: 1fr; }
   .network-body { flex-direction: column; }
   .wifi-qr { align-self: flex-start; }
   .settings-form { grid-template-columns: 1fr; }
   .settings-form .password-setting { grid-column: auto; }
-  .page-toolbar { align-items: stretch; flex-direction: column; }
-  .upload-button { text-align: center; }
+  .page-toolbar { align-items: center; flex-direction: row; gap: 8px; }
+  .page-toolbar-actions { flex: none; }
+  .text-page-button, .upload-button { white-space: nowrap; padding: 9px 12px; font-size: 10px; }
   .pages-list { display: flex; flex-direction: column; gap: 12px; }
   .page-row { width: 100%; }
   .crop-workspace { grid-template-columns: 1fr; }
@@ -329,13 +339,21 @@ dt { color: #666; } dd { margin: 0; font-weight: 700; text-align: right; }
   .photo-controls { grid-template-columns: 1fr; }
   .text-editor-workspace { grid-template-columns: 1fr; }
   .text-editor-preview { border-right: 0; border-bottom: 1px solid #d9d9d9; }
-  .todo-composer { grid-template-columns: 1fr; }.primary-button { padding: 13px; }
-  .todo-view-toolbar { grid-template-columns: 1fr; align-items: stretch; }
-  .todo-filter > div { display: grid; grid-template-columns: repeat(3, 1fr); }
-  .todo-filter button { border-right: 0; }
-  .eink-todo-settings { grid-template-columns: 1fr auto; border-left: 0; border-top: 1px solid #ccc; padding: 12px 0 0; }
-  .eink-todo-settings > span { grid-column: 1 / -1; }
-  .todo-item { grid-template-columns: auto 1fr; }
+  .todo-composer { grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 12px; }
+  .todo-composer input { padding: 10px; }
+  .todo-composer .primary-button { padding: 10px 12px; white-space: nowrap; }
+  .todo-view-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; margin-bottom: 10px; }
+  .todo-filter { display: flex; align-items: center; gap: 6px; }
+  .todo-filter > span { display: none; }
+  .todo-filter > div { display: flex; }
+  .todo-filter button { padding: 6px 8px; font-size: 9px; }
+  .todo-sort { display: flex; align-items: center; gap: 4px; }
+  .todo-sort > select { padding: 6px; font-size: 9px; }
+  .eink-todo-settings { display: flex; align-items: center; gap: 6px; border-left: 0; border-top: 0; padding: 0; margin-left: auto; }
+  .eink-todo-settings > span { display: none; }
+  .eink-todo-settings label { font-size: 9px; }
+  .eink-todo-settings select { padding: 6px; font-size: 9px; }
+  .todo-item { grid-template-columns: auto 1fr; gap: 10px; padding: 14px 8px; }
   .eink-toggle, .todo-actions { grid-column: 2; }
   .preview-meta { flex-direction: column; }
 }
