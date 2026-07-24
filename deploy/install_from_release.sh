@@ -25,6 +25,9 @@ done
 [[ $(uname -s) == "Linux" ]] || fail "this installer must run on Linux"
 [[ ${EUID} -ne 0 ]] && fail "run with: sudo bash install.sh"
 
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)' \
+  || fail "Python 3.12+ required; found $(python3 --version 2>&1)"
+
 case "$(uname -m)" in
   aarch64|arm64) ;;
   *) fail "requires 64-bit ARM OS; found $(uname -m)" ;;
@@ -48,6 +51,14 @@ WHEEL=$(find "${SCRIPT_DIR}/backend" -name '*.whl' -print -quit 2>/dev/null)
 [[ -f "${SCRIPT_DIR}/frontend/dist/eink.html" ]] || fail "frontend/dist/eink.html not found"
 
 echo "Installing InkPi v${VERSION} to ${INSTALL_DIR}..."
+
+# --- Handle existing installation ---
+if [[ -d "${INSTALL_DIR}/venv" ]]; then
+  echo "Existing installation detected at ${INSTALL_DIR}. Upgrading..."
+  systemctl stop inkpi-display.service inkpi-api.service inkpi-network-helper.service 2>/dev/null || true
+  rm -rf "${INSTALL_DIR}/venv"
+  rm -rf "${INSTALL_DIR}/frontend/dist"
+fi
 
 # --- Create install directory ---
 install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${INSTALL_DIR}"
@@ -73,7 +84,10 @@ done
 
 # --- Install Playwright Chromium ---
 echo "Installing Chromium for e-ink rendering..."
-"${INSTALL_DIR}/venv/bin/python" -m playwright install-deps chromium 2>/dev/null || true
+if ! "${INSTALL_DIR}/venv/bin/python" -m playwright install-deps chromium 2>&1; then
+  echo "WARNING: Playwright system dependencies failed to install. E-ink rendering may not work." >&2
+  echo "Install manually: apt install libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2" >&2
+fi
 runuser -u "${SERVICE_USER}" -- "${INSTALL_DIR}/venv/bin/python" -m playwright install chromium
 
 # --- Copy frontend dist ---
