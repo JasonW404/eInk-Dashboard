@@ -6,7 +6,7 @@ if [[ $(uname -s) != "Linux" ]]; then
   exit 1
 fi
 if [[ ${EUID} -ne 0 ]]; then
-  echo "Run with: sudo bash deploy/uninstall_pi.sh" >&2
+  echo "Run with: sudo bash uninstall.sh" >&2
   exit 1
 fi
 
@@ -18,4 +18,10 @@ done
 systemctl daemon-reload
 systemctl reset-failed "${units[@]}" 2>/dev/null || true
 
-echo "InkPi Pi services removed. Application data, environment files, and backups were preserved."
+INSTALL_DIR="${INKPI_INSTALL_DIR:-/opt/inkpi}"
+if [[ -d "${INSTALL_DIR}" ]]; then
+  echo "Removing release install directory: ${INSTALL_DIR}"
+  rm -rf "${INSTALL_DIR}"
+fi
+
+echo "InkPi services removed. Configuration files and data were preserved."

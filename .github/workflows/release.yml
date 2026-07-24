@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: cd backend && uv sync --extra dev
+      - uses: oven-sh/setup-bun@v2
+      - run: cd frontend && bun install --frozen-lockfile && bun run build
+      - run: cd backend && uv run python -m compileall -q src/inkpi tests
+      - run: cd backend && uv run pytest -q
+      - run: cd backend && uv run ruff check src/inkpi tests
+      - run: cd backend && uv run ruff format --check src/inkpi tests
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+      # Backend build
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: cd backend && uv sync --extra dev
+      - run: cd backend && uv build
+
+      # Frontend build
+      - uses: oven-sh/setup-bun@v2
+      - run: cd frontend && bun install --frozen-lockfile && bun run build
+
+      # Assemble release tarball
+      - name: Assemble release
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          RELEASE_DIR="inkpi-${VERSION}"
+          mkdir -p "${RELEASE_DIR}/backend" "${RELEASE_DIR}/frontend" "${RELEASE_DIR}/systemd" "${RELEASE_DIR}/env"
+
+          # Backend wheel
+          cp backend/dist/*.whl "${RELEASE_DIR}/backend/"
+          cp backend/dist/*.tar.gz "${RELEASE_DIR}/backend/"
+
+          # Frontend dist
+          cp -r frontend/dist "${RELEASE_DIR}/frontend/dist"
+
+          # Systemd templates
+          cp deploy/systemd/inkpi-api.service "${RELEASE_DIR}/systemd/"
+          cp deploy/systemd/inkpi-display.service "${RELEASE_DIR}/systemd/"
+          cp deploy/systemd/inkpi-network-helper.service "${RELEASE_DIR}/systemd/"
+
+          # Env examples
+          cp deploy/env/api.env.example "${RELEASE_DIR}/env/"
+
+          # Version file
+          cp VERSION "${RELEASE_DIR}/"
+
+          # Release installer
+          cp deploy/install_from_release.sh "${RELEASE_DIR}/install.sh"
+          chmod +x "${RELEASE_DIR}/install.sh"
+
+          # Uninstaller
+          cp deploy/uninstall_pi.sh "${RELEASE_DIR}/uninstall.sh"
+          chmod +x "${RELEASE_DIR}/uninstall.sh"
+
+          # Create tarball
+          tar czf "inkpi-${VERSION}.tar.gz" "${RELEASE_DIR}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkpi-release
+          path: inkpi-*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: inkpi-release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: inkpi-*.tar.gz
+          generate_release_notes: true
+          name: "InkPi v${{ steps.version.outputs.version }}"
