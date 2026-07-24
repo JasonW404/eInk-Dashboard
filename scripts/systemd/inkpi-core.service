@@ -1,0 +1,24 @@
+[Unit]
+Description=InkPi Core Orchestrator
+After=network-online.target inkpi-display.service
+Wants=network-online.target
+Requires=inkpi-display.service
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__WORKDIR__
+Environment=HOME=__SERVICE_HOME__
+Environment=PATH=__SERVICE_PATH__
+Environment=PYTHONUNBUFFERED=1
+RuntimeDirectory=inkpi-core
+RuntimeDirectoryMode=0770
+ExecStart=__UV_BIN__ run inkpi-core
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+SuccessExitStatus=143 SIGTERM
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+[Unit]
+Description=InkPi E-Ink Display Service
+After=local-fs.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__WORKDIR__
+Environment=HOME=__SERVICE_HOME__
+Environment=PATH=__SERVICE_PATH__
+Environment=PYTHONUNBUFFERED=1
+RuntimeDirectory=inkpi-display
+RuntimeDirectoryMode=0770
+ExecStart=__UV_BIN__ run inkpi-display
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+SuccessExitStatus=143 SIGTERM
+
+[Install]
+WantedBy=multi-user.target

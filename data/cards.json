@@ -1,0 +1,27 @@
+[
+    {
+        "title": "Debugging Wisdom",
+        "body": "Everyone knows that debugging is twice as hard as writing a program in the first place. So if you're as clever as you can be when you write it, how will you ever debug it?",
+        "source": "Brian Kernighan"
+    },
+    {
+        "title": "Code Quality",
+        "body": "Any fool can write code that a computer can understand. Good programmers write code that humans can understand.",
+        "source": "Martin Fowler"
+    },
+    {
+        "title": "Optimization",
+        "body": "Premature optimization is the root of all evil. Yet we should not pass up our opportunities in that critical 3%.",
+        "source": "Donald Knuth"
+    },
+    {
+        "title": "System Design",
+        "body": "The best performance improvement is the transition from the nonworking state to the working state. Focus on correctness first.",
+        "source": "John Ousterhout"
+    },
+    {
+        "title": "Software Engineering",
+        "body": "Make it work, make it right, make it fast. In that order. Don't skip steps.",
+        "source": "Kent Beck"
+    }
+]

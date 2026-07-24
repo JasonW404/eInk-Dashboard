@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+.env.pi
+
+
+# Binary files
+*.png
+*.jpg
+
+# Test and cache
+.pytest_cache/
+
+# Runtime artifacts
+logs/
+.lgd-*
+
+# MkDocs build output
+site/

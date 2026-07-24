@@ -1,0 +1,61 @@
+site_name: InkPi Documentation
+site_description: Modular Raspberry Pi e-ink dashboard appliance
+site_url: ""
+
+theme:
+  name: material
+  language: zh
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - About: about.md
+  - Architecture: architecture.md
+  - Services:
+      - Core: services/core.md
+      - Display: services/display.md
+      - Admin: services/admin.md
+      - Admin Portal Design: services/admin-portal-design.md
+      - Dashboard: services/dashboard.md
+  - Guides:
+      - Developer Guide: guides/developer-guide.md
+      - Deployment: guides/deployment.md
+  - Development:
+      - Plan: development/plan.md
+      - Archive:
+          - Cross-Platform CI: development/archive/cross-platform-ci.md
+          - Font Bundling: development/archive/font-bundling.md
