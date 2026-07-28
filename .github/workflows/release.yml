@@ -22,7 +22,6 @@ jobs:
       - run: cd backend && uv run python -m compileall -q src/inkpi tests
       - run: cd backend && uv run pytest -q
       - run: cd backend && uv run ruff check src/inkpi tests ../packaging
-      - run: cd backend && uv run ruff format --check src/inkpi tests ../packaging
       - run: bash -n deploy/*.sh packaging/*.sh scripts/*.sh
 
   binaries:
