@@ -21,15 +21,13 @@ if ! [[ "${HOURS}" =~ ^[0-9]+([.][0-9]+)?$ ]] || ! awk -v hours="${HOURS}" 'BEGI
 fi
 
 diagnostics() {
-  systemctl --no-pager --full status \
-    inkpi-api.service inkpi-display.service inkpi-network-helper.service >&2 || true
-  journalctl --no-pager -u inkpi-api.service -u inkpi-display.service \
-    -u inkpi-network-helper.service --since '10 minutes ago' >&2 || true
+  systemctl --no-pager --full status inkpi-display.service >&2 || true
+  journalctl --no-pager -u inkpi-display.service --since '10 minutes ago' >&2 || true
 }
 trap diagnostics ERR
 
-if ! command -v systemctl >/dev/null || ! command -v curl >/dev/null; then
-  echo "systemctl and curl are required" >&2
+if ! command -v systemctl >/dev/null; then
+  echo "systemctl is required" >&2
   exit 2
 fi
 
@@ -41,10 +39,7 @@ fi
 DEADLINE=$((SECONDS + SECONDS_TOTAL))
 
 while ((SECONDS < DEADLINE)); do
-  systemctl is-active --quiet inkpi-api.service
   systemctl is-active --quiet inkpi-display.service
-  systemctl is-active --quiet inkpi-network-helper.service
-  curl -fsS http://127.0.0.1:8080/api/health >/dev/null
   sleep 60
 done
 

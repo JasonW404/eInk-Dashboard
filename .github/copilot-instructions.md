@@ -1,15 +1,14 @@
 # InkPi Engineering Guidelines
 
-InkPi v1 has one runtime architecture: FastAPI/SQLite/React on the Pi, a
-revision-aware display puller, a privileged allowlisted network helper, and an
-optional Ubuntu host agent.
+InkPi has a cloud control plane for FastAPI/SQLite/React/Playwright and a
+lightweight Raspberry Pi display client that polls complete frames.
 
 ## Boundaries
 
 - Only `backend/src/inkpi/display/` may import the Waveshare driver or select refresh actions.
 - API and React produce complete 800×480 logical frames only.
-- Only `inkpi-api` persists application state.
-- Only `inkpi-network-helper` executes privileged NetworkManager operations.
+- Only `inkpi-cloud` persists application state and renders logical frames.
+- The Pi runtime contains no API, database, browser, frontend toolchain, or integrations.
 - Do not restore the removed `inkpi-core`, `inkpi-admin`, Python dashboard/UI renderer, or Unix-socket frame push path.
 - Keep secrets in protected environment files and out of persistence, logs, argv, tests, and docs.
 

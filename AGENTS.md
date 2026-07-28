@@ -4,21 +4,25 @@ All contributors and coding agents must follow [CODE_OF_CONDUCT.md](CODE_OF_COND
 
 ## Current Runtime
 
-- Target: Raspberry Pi 4B and Waveshare 4.26-inch 800×480 four-gray e-ink HAT.
-- Pi services: `inkpi-api`, `inkpi-display`, `inkpi-network-helper`.
-- Optional Ubuntu service: `inkpi-host-agent`.
-- State: SQLite owned by `inkpi-api`; secrets come from protected environment files.
-- UI: React Web plus a dedicated fixed-size React eInk view.
-- Rendering: local Playwright generates exact 800×480 PNG frames.
+- Cloud service: `inkpi-cloud` owns FastAPI, SQLite, integrations, React Web,
+  scheduling, uploads, and Playwright rendering.
+- Pi service: `inkpi-display` only polls authenticated revisions/PNGs and owns
+  the Waveshare 4.26-inch 800×480 panel.
+- Optional service: `inkpi-host-agent` reports to the cloud API.
+- The Pi runtime must not depend on Bun, Chromium, FastAPI, SQLAlchemy, or a
+  local application database.
+- Tagged deployment artifacts are native PyInstaller bundles for Linux amd64
+  and arm64; deployment targets must not require Python, uv, or Bun.
 
 ## Non-Negotiable Boundaries
 
 1. `inkpi-display` is the sole SPI/GPIO and physical-panel owner.
 2. Full, partial, skipped, and recovery decisions stay in `backend/src/inkpi/display/`.
-3. `inkpi-api` owns application state and complete logical frame generation; it never selects a refresh mode.
-4. `inkpi-network-helper` is the only root process and accepts allowlisted typed operations only.
-5. Host-agent reports are authenticated, expiring inputs; the Pi remains the source of truth.
-6. Secrets must not enter SQLite, editable JSON, logs, tests, documentation, or command arguments.
+3. `inkpi-cloud` owns application state and complete logical frame generation;
+   it never selects a physical refresh mode.
+4. The display bearer token protects all remote device endpoints and must not
+   enter logs, tests, documentation values, or command arguments.
+5. Host-agent reports are authenticated, expiring cloud inputs.
 
 ## Engineering Rules
 

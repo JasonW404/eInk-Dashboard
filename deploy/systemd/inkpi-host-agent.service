@@ -11,7 +11,7 @@ WorkingDirectory=__WORKDIR__
 Environment=HOME=__SERVICE_HOME__
 Environment=PATH=__SERVICE_PATH__
 Environment=PYTHONUNBUFFERED=1
-EnvironmentFile=__SERVICE_HOME__/.config/inkpi/host-agent.env
+EnvironmentFile=/etc/inkpi/host-agent.env
 ExecStart=__BACKEND_BIN__/inkpi-host-agent
 Restart=always
 RestartSec=10

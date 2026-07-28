@@ -6,7 +6,7 @@
 |---|---|
 | `backend/src/inkpi/api/` | FastAPI application, SQLite models and repository, PNG renderer |
 | `backend/src/inkpi/display/` | HTTP pull loop and refresh engine |
-| `backend/src/inkpi/network/` | Authentication and privileged network-helper boundary |
+| `backend/src/inkpi/network/` | Authentication and legacy network configuration contracts |
 | `backend/src/inkpi/host_agent/` | Host registration, scheduling, and report upload |
 | `backend/src/inkpi/services/` | Codex and GitHub domain services |
 | `backend/src/inkpi/hardware/` | Waveshare driver and bundled native libraries |
@@ -24,7 +24,8 @@
 - Bun
 - Chromium installed through Playwright
 
-Pi-only GPIO and SPI dependencies remain in the backend `rpi` optional group.
+Cloud dependencies are in the `cloud` extra. Pi-only GPIO and SPI dependencies
+remain in `rpi`; the base package contains only the display HTTP/image needs.
 
 ## Initial setup
 
@@ -55,7 +56,8 @@ run this in another terminal:
 
 ```bash
 cd backend
-uv run inkpi-display --api-url http://127.0.0.1:8080
+INKPI_DISPLAY_TOKEN=development-token \
+  uv run inkpi-display --api-url http://127.0.0.1:8080
 ```
 
 For frontend hot reload, run `bun run dev` in `frontend/`. Vite proxies `/api`

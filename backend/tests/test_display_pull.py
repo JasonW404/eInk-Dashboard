@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import pytest
 
 from PIL import Image
 
@@ -98,3 +99,20 @@ def test_telemetry_failure_does_not_repeat_a_successful_panel_refresh() -> None:
     now[0] += 10
     assert loop.poll_once() is None
     assert len(engine.frames) == 1
+
+
+def test_pull_loop_rejects_non_display_sized_cloud_frame() -> None:
+    now = [10.0]
+    api = FakeDisplayApi()
+    api.get_image = lambda: ("revision-a", _small_png())
+    loop = DisplayPullLoop(api, FakeEngine(), debounce_seconds=0, clock=lambda: now[0])
+
+    with pytest.raises(ValueError, match="invalid dimensions"):
+        loop.poll_once()
+    assert loop.last_submitted_revision is None
+
+
+def _small_png() -> bytes:
+    buffer = io.BytesIO()
+    Image.new("L", (80, 48), 255).save(buffer, format="PNG")
+    return buffer.getvalue()

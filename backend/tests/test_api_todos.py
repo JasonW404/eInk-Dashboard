@@ -171,7 +171,10 @@ def test_legacy_integer_revision_is_migrated_to_uuid(tmp_path: Path) -> None:
         )
 
     with TestClient(create_app(_database_url(database_path))) as client:
-        revision = client.get("/api/display/revision").json()["revision"]
+        revision = client.get(
+            "/api/display/revision",
+            headers={"Authorization": "Bearer display-secret"},
+        ).json()["revision"]
         UUID(revision)
         assert revision != "9223372036854775807"
 
@@ -228,7 +231,16 @@ def test_display_refresh_telemetry_updates_read_only_system_info(
 
     with TestClient(app) as client:
         client.post("/api/todos", json={"title": "Visible item"})
-        revision = client.get("/api/display/revision").json()["revision"]
+        assert client.get("/api/display/revision").status_code == 401
+        assert client.get("/api/display/image").status_code == 401
+        revision = client.get(
+            "/api/display/revision",
+            headers={"Authorization": "Bearer display-secret"},
+        ).json()["revision"]
+        assert client.get(
+            "/api/display/image",
+            headers={"Authorization": "Bearer display-secret"},
+        ).status_code == 200
         denied = client.post(
             "/api/display/refresh",
             json={"revision": revision, "action": "full", "accepted": True},

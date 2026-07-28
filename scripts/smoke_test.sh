@@ -20,7 +20,7 @@ cleanup() {
 trap cleanup EXIT
 
 cd "${BACKEND_DIR}"
-uv run inkpi-api \
+INKPI_DISPLAY_TOKEN=smoke-test-token uv run inkpi-api \
   --host 127.0.0.1 \
   --port "${PORT}" \
   --database-url "sqlite+pysqlite:///${RUN_DIR}/inkpi.db" \
@@ -39,7 +39,7 @@ if ! curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null; then
 fi
 curl -fsS "http://127.0.0.1:${PORT}/" >/dev/null
 
-uv run inkpi-display --api-url "http://127.0.0.1:${PORT}" \
+INKPI_DISPLAY_TOKEN=smoke-test-token uv run inkpi-display --api-url "http://127.0.0.1:${PORT}" \
   --poll-seconds 0.25 --debounce-seconds 0 >"${RUN_DIR}/display.log" 2>&1 &
 DISPLAY_PID=$!
 

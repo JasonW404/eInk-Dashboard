@@ -9,7 +9,7 @@ from inkpi.network.auth import AdminAuthPolicy
 from inkpi.network.operations import InMemoryNetworkHelper, NetworkOperationRequest
 from inkpi.api import create_app
 from inkpi.api.network_status import connected_hotspot_clients
-from tests.test_api_todos import FakeDisplayRenderer, _database_url
+from test_api_todos import FakeDisplayRenderer, _database_url
 
 
 class CapturingNetworkHelper(InMemoryNetworkHelper):

@@ -1,6 +1,6 @@
 # `inkpi-api`
 
-`inkpi-api` is the unprivileged Raspberry Pi application service. It owns
+`inkpi-api` is the process inside the `inkpi-cloud` service. It owns
 SQLite state, serves the React build, renders complete eInk PNGs, and exposes
 the HTTP contracts consumed by browsers, the display process, and host agents.
 
@@ -25,12 +25,12 @@ Latest-report reads omit expired reports.
 - Remote host-agent enrollment requires `INKPI_AGENT_ENROLLMENT_TOKEN`.
 - Heartbeat and report upload require the per-agent bearer token returned at
   registration. Only its hash is persisted.
-- Display telemetry uses `INKPI_DISPLAY_TOKEN` when configured. Without it,
-  telemetry is accepted from loopback only.
+- Revision polling, rendered-image download, and display telemetry use
+  `INKPI_DISPLAY_TOKEN`. Without it, those device routes accept loopback only.
 - `/api/display/context` is always loopback-only.
 
-Read-only health, TODO, report, system, network, revision, and rendered-image
-endpoints are currently unauthenticated on the device network.
+Health and browser-facing reads remain public to the deployed Web application;
+device revision and image routes require the display credential remotely.
 
 ## Persistence
 
@@ -57,14 +57,13 @@ and cannot choose a refresh mode.
 |---|---|
 | `INKPI_DATABASE_URL` | SQLite or SQLAlchemy database URL |
 | `INKPI_RENDER_BASE_URL` | Loopback URL used by Playwright |
-| `INKPI_NETWORK_HELPER_SOCKET` | Protected helper socket path |
-| `INKPI_ADMIN_TOKEN` | Hotspot-mutation credential |
-| `INKPI_DISPLAY_TOKEN` | Display telemetry credential |
+| `INKPI_ADMIN_TOKEN` | Administrative credential |
+| `INKPI_DISPLAY_TOKEN` | Remote Pi display credential |
 | `INKPI_AGENT_ENROLLMENT_TOKEN` | Remote agent enrollment credential |
 | `INKPI_HOTSPOT_PASSWORD` | Optional startup password for local QR rendering |
 
-The Pi systemd unit reads protected values from
-`~/.config/inkpi/api.env`.
+The cloud systemd unit reads protected values from the root-owned
+`/etc/inkpi/cloud.env`.
 
 ## Local run
 

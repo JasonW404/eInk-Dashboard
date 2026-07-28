@@ -68,26 +68,19 @@ uv run inkpi-host-agent --once
 After successful registration, remove the enrollment token from the host
 environment unless re-enrollment is required.
 
-## systemd installation
+## Binary installation
 
-Create `~/.config/inkpi/host-agent.env` from the deployment template with mode
-`0600`:
-
-```bash
-install -d -m 700 ~/.config/inkpi
-install -m 600 deploy/env/host-agent.env.example ~/.config/inkpi/host-agent.env
-${EDITOR:-nano} ~/.config/inkpi/host-agent.env
-```
-
-Then run from the repository root:
+The standalone HostAgent is bundled with each cloud release. Enable it through
+the extracted cloud installer:
 
 ```bash
-sudo bash deploy/install_host_agent.sh
+sudo ./install.sh \
+  --enable-host-agent \
+  --host-agent-api-url http://127.0.0.1:8080 \
+  --host-agent-name homelab-cloud
 ```
 
-The installer synchronizes backend dependencies, renders the systemd unit to
-use `backend/.venv/bin/inkpi-host-agent`, enables it, and checks that it remains
-active.
-
-After the first registration, remove `INKPI_AGENT_ENROLLMENT_TOKEN` from the
-file and restart the service.
+The installer reads the enrollment token from the root-owned cloud environment,
+creates the HostAgent environment, waits for credentials, removes the one-time
+token, and restarts the service. The deployed host does not need Python or
+`uv`.

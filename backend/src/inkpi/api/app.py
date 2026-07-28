@@ -113,6 +113,19 @@ def create_app(
             return base
         return str(uuid5(NAMESPACE_URL, f"{base}:page:{getattr(page, 'id', 'dashboard')}"))
 
+    def authorize_display_device(request: Request, authorization: str | None) -> None:
+        configured_token = os.getenv("INKPI_DISPLAY_TOKEN")
+        client_host = request.client.host if request.client else ""
+        supplied_token = extract_bearer_token(authorization)
+        if configured_token:
+            if not supplied_token or not secrets.compare_digest(supplied_token, configured_token):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid display token")
+        elif client_host not in {"127.0.0.1", "::1", "testclient"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="remote display access requires INKPI_DISPLAY_TOKEN",
+            )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         Base.metadata.create_all(engine)
@@ -221,7 +234,12 @@ def create_app(
         return TodoDisplaySettings(show_completed=state.todo_show_completed, sort=state.todo_sort)
 
     @app.get("/api/display/revision", response_model=DisplayRevision)
-    def display_revision(session: SessionDependency) -> object:
+    def display_revision(
+        request: Request,
+        session: SessionDependency,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> object:
+        authorize_display_device(request, authorization)
         state = repository.get_display_state(session)
         return DisplayRevision(revision=effective_revision(session), updated_at=state.updated_at)
 
@@ -254,17 +272,7 @@ def create_app(
         session: SessionDependency,
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
-        configured_token = os.getenv("INKPI_DISPLAY_TOKEN")
-        client_host = request.client.host if request.client else ""
-        supplied_token = extract_bearer_token(authorization)
-        if configured_token:
-            if not supplied_token or not secrets.compare_digest(supplied_token, configured_token):
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid display token")
-        elif client_host not in {"127.0.0.1", "::1", "testclient"}:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="remote display telemetry requires INKPI_DISPLAY_TOKEN",
-            )
+        authorize_display_device(request, authorization)
         current_revision = effective_revision(session)
         if payload.revision != current_revision:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="stale display revision")
@@ -277,7 +285,12 @@ def create_app(
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.get("/api/display/image", response_class=Response)
-    def display_image(session: SessionDependency) -> Response:
+    def display_image(
+        request: Request,
+        session: SessionDependency,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        authorize_display_device(request, authorization)
         revision = effective_revision(session)
         page = scheduled_page(session)
         if page is not None:

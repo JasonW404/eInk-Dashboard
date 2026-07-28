@@ -41,9 +41,15 @@ class HttpDisplayApi:
         self._session = requests.Session()
         self._display_token = display_token
 
+    def _headers(self) -> dict[str, str] | None:
+        if not self._display_token:
+            return None
+        return {"Authorization": f"Bearer {self._display_token}"}
+
     def get_revision(self) -> str:
         response = self._session.get(
             f"{self._base_url}/api/display/revision",
+            headers=self._headers(),
             timeout=self._timeout_seconds,
         )
         response.raise_for_status()
@@ -52,6 +58,7 @@ class HttpDisplayApi:
     def get_image(self) -> tuple[str, bytes]:
         response = self._session.get(
             f"{self._base_url}/api/display/image",
+            headers=self._headers(),
             timeout=self._timeout_seconds,
         )
         response.raise_for_status()
@@ -59,10 +66,9 @@ class HttpDisplayApi:
         return revision, response.content
 
     def report_refresh(self, revision: str, result: DisplayResult) -> None:
-        headers = {"Authorization": f"Bearer {self._display_token}"} if self._display_token else None
         response = self._session.post(
             f"{self._base_url}/api/display/refresh",
-            headers=headers,
+            headers=self._headers(),
             json={
                 "revision": revision,
                 "action": result.action,
@@ -134,8 +140,13 @@ class DisplayPullLoop:
             return None
 
         image_revision, png = self._api.get_image()
-        image = Image.open(io.BytesIO(png)).convert("L")
-        image.load()
+        with Image.open(io.BytesIO(png)) as source:
+            source.load()
+            if source.format != "PNG":
+                raise ValueError("cloud frame is not a PNG")
+            if source.size != (800, 480):
+                raise ValueError(f"cloud frame has invalid dimensions: {source.size}")
+            image = source.convert("L")
         result = self._engine.submit(image, FrameMetadata(page_id="eink"))
         if result.accepted:
             self._last_submitted_revision = image_revision

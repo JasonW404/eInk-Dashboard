@@ -1,94 +1,66 @@
 # Architecture
 
-This page describes the runtime implemented in the current repository.
-
 ## Runtime topology
 
 ```text
-Browser ──HTTP──> inkpi-api ───────────────> SQLite
-                     │
-                     ├── React eInk page ──Playwright──> 800×480 PNG
-                     ├── protected Unix socket ──> inkpi-network-helper ──> NetworkManager
-                     └── revision + PNG <──poll── inkpi-display ──> Waveshare HAT
-
-Ubuntu inkpi-host-agent ──authenticated, expiring reports──> inkpi-api
+Cloud server
+  Browser ──HTTPS──> inkpi-cloud ──> SQLite
+                         │
+                         ├── integrations and report processing
+                         └── React eInk view ──Playwright──> cached 800×480 PNG
+                                      ▲
+                                      │ authenticated revision/PNG polling
+                                      │
+Raspberry Pi                    inkpi-display ──SPI/GPIO──> Waveshare HAT
 ```
 
 | Process | Runs on | Responsibility |
 |---|---|---|
-| `inkpi-api` | Raspberry Pi | HTTP API, SQLite state, Web assets, and logical PNG generation |
-| `inkpi-display` | Raspberry Pi | SPI/GPIO ownership and all physical refresh decisions |
-| `inkpi-network-helper` | Raspberry Pi as root | Allowlisted NetworkManager mutations |
-| `inkpi-host-agent` | Optional Ubuntu host | Codex and GitHub collection |
-
-The React application has two entry points: the interactive Web UI and a fixed
-800×480 eInk view. They consume the same API but serve different presentation
-requirements.
+| `inkpi-cloud` | Cloud Linux host or LXC | HTTP API, SQLite, Web UI, integrations, uploads, scheduling, and PNG rendering |
+| `inkpi-display` | Raspberry Pi | Authenticated frame polling and physical refresh policy |
+| `inkpi-host-agent` | Optional data source | Collection and authenticated report upload |
 
 ## Ownership boundaries
 
-- `inkpi-api` is the only application-state owner. It persists TODOs, agents,
-  reports, display revision and telemetry, and non-secret hotspot settings.
-- `inkpi-display` is the only SPI/GPIO owner. The API supplies complete logical
-  frames and cannot request full or partial refreshes.
-- `inkpi-network-helper` is the only root process. It accepts typed,
-  allowlisted operations over a permission-restricted local socket.
-- `inkpi-host-agent` supplies authenticated, expiring data. The Pi remains the
-  source of truth when the host is offline.
-- Secrets are supplied through protected environment files. They do not belong
-  in SQLite, JSON configuration, logs, tests, documentation, or command
-  arguments.
+- The cloud service owns all application state and expensive work. It emits a
+  complete display-ready 800×480 PNG.
+- The Pi has no database and does not render HTML. It validates the PNG, converts
+  it to the panel grayscale format, compares it with the last accepted frame,
+  and decides whether to use a full, partial, repaired, or skipped refresh.
+- Only `inkpi-display` accesses SPI/GPIO.
+- A shared display bearer token authenticates revision reads, image downloads,
+  and refresh telemetry. Cloud access should additionally be protected by TLS.
+- If the cloud or network is unavailable, the Pi retains the last accepted
+  image and retries without clearing the panel.
 
-## Application and display flow
+## Frame flow
 
-1. A visual state mutation commits to SQLite and increments `display_state.revision`.
-2. `inkpi-display` polls `/api/display/revision` and debounces a new revision.
-3. `/api/display/image` asks Playwright to open `/eink.html` at an 800×480 viewport.
-4. React fetches the current TODO, report, revision, and local display context data.
-5. Playwright waits for the ready marker and bundled fonts, then screenshots
-   only `.eink-display`.
-6. `DisplayEngine` compares the complete frame with its previous accepted frame
-   and chooses full, partial, region repair, or skip.
-7. The display process reports accepted refresh telemetry back to the API.
+1. A cloud-side visual state mutation increments the display revision.
+2. The Pi polls `GET /api/display/revision` with its bearer token.
+3. After debouncing a new revision, it requests `GET /api/display/image`.
+4. The cloud selects the scheduled page and either serves its prepared image or
+   uses Playwright to render the fixed React eInk view.
+5. The Pi accepts only PNG frames of exactly 800×480 pixels.
+6. The local display engine chooses the physical refresh method.
+7. The Pi sends the result to `POST /api/display/refresh`.
 
-PNG output is cached by display revision. Slow browser rendering and physical
-panel refreshes run outside API request-control paths that do not require them.
+The image response carries `X-InkPi-Revision`. The Pi records that revision only
+after the engine accepts the frame, preventing failed refreshes from being
+treated as current.
 
-## Data model
+## Dependencies
 
-| Table | Stored state |
-|---|---|
-| `todos` | Title, completion, eInk visibility, order, timestamps |
-| `display_state` | Revision, refresh timestamps, accepted refresh count |
-| `hotspot_settings` | Enabled state, SSID, update time; never the password |
-| `agents` | Agent identity, token hash, heartbeat timestamps |
-| `reports` | Typed JSON payload, source agent, creation and expiry times |
+The Python package exposes distinct extras:
 
-The SQLite database defaults to `~/.local/share/inkpi/inkpi.db` and is owned by
-`inkpi-api`.
+- Base: `requests` and Pillow, shared with the Pi display client.
+- `rpi`: GPIO and SPI drivers only.
+- `cloud`: FastAPI, SQLAlchemy, Uvicorn, and Playwright.
+- `dev`: cloud dependencies plus test and lint tooling.
 
-## Network and secret flow
+Chromium, Bun, frontend sources, SQLite, and cloud integrations are not required
+by the Pi runtime.
 
-Hotspot mutations require the API admin token and same-origin validation. The
-unprivileged API sends a typed request to the network helper, which invokes
-`nmcli --ask` and supplies the password through stdin. Only enabled state and
-SSID are persisted.
-
-When the hotspot is active, the password may be held briefly in API memory to
-produce the Wi-Fi QR payload for the loopback-only display context endpoint.
-The normal settings API never returns it.
-
-Host-agent enrollment uses a one-time enrollment token. The API returns an
-agent bearer token once and stores only its SHA-256 hash. Uploaded reports have
-an expiry time and disappear from latest-report reads when stale.
-
-## Failure behavior
-
-- If the host agent is offline, its reports become stale; local Web, TODO, and
-  display functions continue.
-- If rendering fails, `/api/display/image` returns `503` and the display keeps
-  its last accepted frame.
-- If a panel refresh fails, the engine clears previous-frame state so the next
-  accepted frame uses full recovery.
-- If the network helper is unavailable, hotspot mutation fails without
-  changing persisted hotspot state.
+Tagged releases freeze these environments into PyInstaller one-directory
+bundles. Cloud bundles add the prebuilt React output; display bundles contain
+only the display process and panel dependencies. Native amd64 and arm64 bundles
+are built independently to avoid cross-architecture Python extension issues.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 from dataclasses import dataclass, field
@@ -96,7 +97,11 @@ class PlaywrightDisplayRenderer:
             from playwright.sync_api import sync_playwright
 
             with sync_playwright() as playwright:
-                browser = playwright.chromium.launch(headless=True)
+                executable_path = os.getenv("INKPI_CHROMIUM_EXECUTABLE")
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    executable_path=executable_path or None,
+                )
                 try:
                     while True:
                         job = self._jobs.get()

@@ -1,17 +1,18 @@
 # `inkpi-display`
 
 `inkpi-display` is the sole SPI/GPIO and Waveshare panel owner. It consumes
-complete PNG frames from `inkpi-api` and applies the longevity-first refresh
+complete PNG frames from `inkpi-cloud` and applies the longevity-first refresh
 policy in `backend/src/inkpi/display/`.
 
 ```text
-inkpi-api ──revision + PNG──> DisplayPullLoop ──> DisplayEngine ──> WaveshareBackend
+inkpi-cloud ──authenticated revision + PNG──> DisplayPullLoop ──> DisplayEngine ──> WaveshareBackend
 ```
 
 ## Pull loop
 
 The service polls `/api/display/revision`, debounces a new revision, downloads
-`/api/display/image`, converts it to grayscale, and submits the complete frame
+`/api/display/image`, validates that it is an 800×480 PNG, converts it to
+grayscale, and submits the complete frame
 with page identity `eink`. Accepted refresh telemetry is posted back to the API.
 
 Default runtime values are:
@@ -20,9 +21,9 @@ Default runtime values are:
 |---|---:|
 | Poll interval | 2 seconds |
 | Debounce interval | 1 second |
-| API URL | `http://127.0.0.1:8080` |
+| API URL | configured by `INKPI_API_URL` |
 
-Set `INKPI_API_URL`, `INKPI_DISPLAY_POLL_SECONDS`,
+Set the cloud `INKPI_API_URL`, `INKPI_DISPLAY_POLL_SECONDS`,
 `INKPI_DISPLAY_DEBOUNCE_SECONDS`, and `INKPI_DISPLAY_TOKEN` as needed.
 
 ## Refresh decisions
@@ -47,10 +48,11 @@ recovery on the next accepted frame.
 
 ## Simulation and hardware
 
-Run against a local API from `backend/`:
+Run against a development cloud API from `backend/`:
 
 ```bash
-uv run inkpi-display --api-url http://127.0.0.1:8080
+INKPI_DISPLAY_TOKEN=development-token \
+  uv run inkpi-display --api-url http://127.0.0.1:8080
 ```
 
 On a non-Pi machine, the adapter enters simulation mode while preserving the

@@ -1,16 +1,15 @@
 # InkPi Documentation
 
-InkPi is a local-first ambient productivity terminal built around a Raspberry
-Pi and an 800×480 e-ink panel.
+InkPi is a cloud-rendered ambient productivity terminal with a lightweight
+Raspberry Pi client and an 800×480 e-ink panel.
 
 ## Components
 
 | Component | Responsibility |
 |---|---|
-| `inkpi-api` | SQLite state, HTTP API, React Web, eInk PNG rendering |
-| `inkpi-display` | Panel ownership and refresh policy |
-| `inkpi-network-helper` | Allowlisted privileged network mutations |
-| `inkpi-host-agent` | Optional Codex and GitHub report collection |
+| `inkpi-cloud` | SQLite state, HTTP API, React Web, integrations, and eInk PNG rendering |
+| `inkpi-display` | Authenticated PNG polling, panel ownership, and refresh policy |
+| `inkpi-host-agent` | Optional Codex and GitHub report collection to the cloud |
 
 Documentation is organized into two sections:
 
