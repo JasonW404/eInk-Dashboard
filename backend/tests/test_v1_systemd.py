@@ -21,7 +21,12 @@ def test_all_service_templates_render_without_placeholders() -> None:
         for placeholder, value in replacements.items():
             rendered = rendered.replace(placeholder, value)
         assert re.search(r"__[A-Z0-9_]+__", rendered) is None, template
-        assert "WorkingDirectory=/opt/inkpi/backend" in rendered
+        expected_working_directory = (
+            "/home/inkpi"
+            if template.name == "inkpi-display.service"
+            else "/opt/inkpi/backend"
+        )
+        assert f"WorkingDirectory={expected_working_directory}" in rendered
         assert "ExecStart=/opt/inkpi/backend/.venv/bin/inkpi-" in rendered
 
 
@@ -34,6 +39,7 @@ def test_cloud_and_pi_units_preserve_process_boundaries() -> None:
     assert "--web-dist __FRONTEND_DIST__" in cloud
     assert "inkpi-network-helper" not in cloud
     assert "ExecStart=__BACKEND_BIN__/inkpi-display" in display
+    assert "WorkingDirectory=__SERVICE_HOME__" in display
     assert "pi-display.env" in display
     assert "inkpi-api.service" not in display
 

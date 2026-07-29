@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=__SERVICE_USER__
 Group=__SERVICE_GROUP__
-WorkingDirectory=__WORKDIR__
+WorkingDirectory=__SERVICE_HOME__
 Environment=HOME=__SERVICE_HOME__
 Environment=PATH=__SERVICE_PATH__
 Environment=PYTHONUNBUFFERED=1
