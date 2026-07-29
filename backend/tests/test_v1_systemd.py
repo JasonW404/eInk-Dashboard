@@ -79,6 +79,13 @@ def test_release_builds_both_roles_on_native_amd64_and_arm64() -> None:
     assert "SHA256SUMS" in workflow
 
 
+def test_display_bundle_collects_dynamic_gpiozero_pin_factories() -> None:
+    spec = (ROOT / "packaging/inkpi-display.spec").read_text(encoding="utf-8")
+
+    assert 'collect_submodules("gpiozero.pins")' in spec
+    assert "gpiozero_pin_factories" in spec
+
+
 def test_only_current_service_templates_remain() -> None:
     names = {path.name for path in (ROOT / "deploy/systemd").glob("*.service")}
     assert names == {
