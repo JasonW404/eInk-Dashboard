@@ -131,6 +131,9 @@ def create_app(
         authorization: str | None,
         inkpi_admin_session: str | None,
     ) -> None:
+        client_host = request.client.host if request.client else ""
+        if client_host in {"127.0.0.1", "::1"}:
+            return
         if inkpi_admin_session:
             try:
                 auth_policy.validate_browser_session(inkpi_admin_session)

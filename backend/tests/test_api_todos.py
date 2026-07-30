@@ -268,6 +268,19 @@ def test_display_refresh_telemetry_updates_read_only_system_info(
         assert stale.status_code == 409
 
 
+def test_display_reads_allow_loopback_renderer(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("INKPI_DISPLAY_TOKEN", "display-secret")
+    app = create_app(
+        _database_url(tmp_path / "display-loopback.db"),
+        web_dist=tmp_path / "missing-web",
+        display_renderer=FakeDisplayRenderer(),
+    )
+
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
+        assert client.get("/api/display/revision").status_code == 200
+        assert client.get("/api/display/image").status_code == 200
+
+
 def test_agent_registration_heartbeat_and_reports(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("INKPI_AGENT_ENROLLMENT_TOKEN", "enroll-secret")
     app = create_app(
