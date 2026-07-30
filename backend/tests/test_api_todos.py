@@ -93,24 +93,16 @@ def test_todos_support_three_levels_and_delete_subtree(tmp_path: Path) -> None:
         )
     ) as client:
         root = client.post("/api/todos", json={"title": "Root"}).json()
-        child = client.post(
-            "/api/todos", json={"title": "Child", "parent_id": root["id"]}
-        ).json()
-        grandchild = client.post(
-            "/api/todos", json={"title": "Grandchild", "parent_id": child["id"]}
-        ).json()
+        child = client.post("/api/todos", json={"title": "Child", "parent_id": root["id"]}).json()
+        grandchild = client.post("/api/todos", json={"title": "Grandchild", "parent_id": child["id"]}).json()
 
         assert root["parent_id"] is None
         assert child["parent_id"] == root["id"]
         assert grandchild["parent_id"] == child["id"]
-        too_deep = client.post(
-            "/api/todos", json={"title": "Too deep", "parent_id": grandchild["id"]}
-        )
+        too_deep = client.post("/api/todos", json={"title": "Too deep", "parent_id": grandchild["id"]})
         assert too_deep.status_code == 400
         assert too_deep.json()["detail"] == "todos support a maximum of 3 levels"
-        assert client.post(
-            "/api/todos", json={"title": "Orphan", "parent_id": 9999}
-        ).status_code == 400
+        assert client.post("/api/todos", json={"title": "Orphan", "parent_id": 9999}).status_code == 400
 
         assert client.delete(f"/api/todos/{root['id']}").status_code == 204
         assert client.get("/api/todos").json() == []
@@ -131,9 +123,7 @@ def test_todos_persist_across_app_restarts(tmp_path: Path) -> None:
 def test_todo_display_settings_persist_and_bump_revision(tmp_path: Path) -> None:
     database_url = _database_url(tmp_path / "todo-display.db")
     with TestClient(create_app(database_url)) as client:
-        assert client.get("/api/settings/todos/display").json() == {
-            "show_completed": True, "sort": "manual"
-        }
+        assert client.get("/api/settings/todos/display").json() == {"show_completed": True, "sort": "manual"}
         before = client.get("/api/display/revision").json()["revision"]
         updated = client.put(
             "/api/settings/todos/display",
@@ -144,9 +134,7 @@ def test_todo_display_settings_persist_and_bump_revision(tmp_path: Path) -> None
         assert client.get("/api/display/revision").json()["revision"] != before
 
     with TestClient(create_app(database_url)) as client:
-        assert client.get("/api/settings/todos/display").json() == {
-            "show_completed": False, "sort": "completed_asc"
-        }
+        assert client.get("/api/settings/todos/display").json() == {"show_completed": False, "sort": "completed_asc"}
 
 
 def test_todo_display_settings_reject_invalid_sort(tmp_path: Path) -> None:
@@ -223,6 +211,7 @@ def test_display_refresh_telemetry_updates_read_only_system_info(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("INKPI_DISPLAY_TOKEN", "display-secret")
+    monkeypatch.setenv("INKPI_ADMIN_TOKEN", "admin-secret")
     app = create_app(
         _database_url(tmp_path / "display-telemetry.db"),
         web_dist=tmp_path / "missing-web",
@@ -237,10 +226,22 @@ def test_display_refresh_telemetry_updates_read_only_system_info(
             "/api/display/revision",
             headers={"Authorization": "Bearer display-secret"},
         ).json()["revision"]
-        assert client.get(
-            "/api/display/image",
-            headers={"Authorization": "Bearer display-secret"},
-        ).status_code == 200
+        assert (
+            client.get(
+                "/api/display/image",
+                headers={"Authorization": "Bearer display-secret"},
+            ).status_code
+            == 200
+        )
+
+        login = client.post(
+            "/api/auth/login",
+            json={"token": "admin-secret", "remember": False},
+        )
+        assert login.status_code == 200
+        assert client.get("/api/display/revision").status_code == 200
+        assert client.get("/api/display/image").status_code == 200
+
         denied = client.post(
             "/api/display/refresh",
             json={"revision": revision, "action": "full", "accepted": True},

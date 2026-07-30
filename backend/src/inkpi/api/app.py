@@ -126,6 +126,19 @@ def create_app(
                 detail="remote display access requires INKPI_DISPLAY_TOKEN",
             )
 
+    def authorize_display_read(
+        request: Request,
+        authorization: str | None,
+        inkpi_admin_session: str | None,
+    ) -> None:
+        if inkpi_admin_session:
+            try:
+                auth_policy.validate_browser_session(inkpi_admin_session)
+                return
+            except AdminAuthError:
+                pass
+        authorize_display_device(request, authorization)
+
     def authorize_network_device(request: Request, authorization: str | None) -> None:
         configured_token = os.getenv("INKPI_NETWORK_TOKEN")
         client_host = request.client.host if request.client else ""
@@ -239,9 +252,7 @@ def create_app(
         return TodoDisplaySettings(show_completed=state.todo_show_completed, sort=state.todo_sort)
 
     @app.put("/api/settings/todos/display", response_model=TodoDisplaySettings)
-    def update_todo_display_settings(
-        payload: TodoDisplaySettings, session: SessionDependency
-    ) -> TodoDisplaySettings:
+    def update_todo_display_settings(payload: TodoDisplaySettings, session: SessionDependency) -> TodoDisplaySettings:
         with session.begin():
             state = repository.update_todo_display_settings(
                 session, show_completed=payload.show_completed, sort=payload.sort
@@ -253,8 +264,9 @@ def create_app(
         request: Request,
         session: SessionDependency,
         authorization: Annotated[str | None, Header()] = None,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
     ) -> object:
-        authorize_display_device(request, authorization)
+        authorize_display_read(request, authorization, inkpi_admin_session)
         state = repository.get_display_state(session)
         return DisplayRevision(revision=effective_revision(session), updated_at=state.updated_at)
 
@@ -304,8 +316,9 @@ def create_app(
         request: Request,
         session: SessionDependency,
         authorization: Annotated[str | None, Header()] = None,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
     ) -> Response:
-        authorize_display_device(request, authorization)
+        authorize_display_read(request, authorization, inkpi_admin_session)
         revision = effective_revision(session)
         page = scheduled_page(session)
         if page is not None:
@@ -321,7 +334,9 @@ def create_app(
                 )
             image_path = upload_root / page.file_name
             if not image_path.is_file():
-                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="scheduled page image is missing")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="scheduled page image is missing"
+                )
             return FileResponse(
                 image_path,
                 media_type="image/png",
@@ -367,9 +382,7 @@ def create_app(
                 "status": settings.operation_status,
                 "message": settings.operation_message,
                 "network_last_seen": (
-                    settings.network_last_seen.isoformat()
-                    if settings.network_last_seen is not None
-                    else None
+                    settings.network_last_seen.isoformat() if settings.network_last_seen is not None else None
                 ),
             },
         )
@@ -526,10 +539,14 @@ def create_app(
         state = repository.get_display_state(session)
         result: list[object] = [
             {
-                "id": 0, "kind": "dashboard", "name": "Dashboard",
+                "id": 0,
+                "kind": "dashboard",
+                "name": "Dashboard",
                 "sort_order": state.dashboard_sort_order,
                 "interval_seconds": state.dashboard_interval_seconds,
-                "enabled": state.dashboard_enabled, "created_at": state.updated_at, "updated_at": state.updated_at,
+                "enabled": state.dashboard_enabled,
+                "created_at": state.updated_at,
+                "updated_at": state.updated_at,
             },
             *repository.list_pages(session),
         ]
@@ -596,7 +613,9 @@ def create_app(
 
     @app.patch("/api/pages/{page_id}", response_model=PageRead)
     def update_page(
-        page_id: int, payload: PageUpdate, session: SessionDependency,
+        page_id: int,
+        payload: PageUpdate,
+        session: SessionDependency,
         x_csrf_token: Annotated[str | None, Header()] = None,
         inkpi_admin_session: Annotated[str | None, Cookie()] = None,
     ) -> object:
@@ -618,10 +637,14 @@ def create_app(
                     state.updated_at = repository.utc_now()
                     repository.bump_revision(session)
                 return {
-                    "id": 0, "kind": "dashboard", "name": "Dashboard",
+                    "id": 0,
+                    "kind": "dashboard",
+                    "name": "Dashboard",
                     "sort_order": state.dashboard_sort_order,
                     "interval_seconds": state.dashboard_interval_seconds,
-                "enabled": state.dashboard_enabled, "created_at": state.updated_at, "updated_at": state.updated_at,
+                    "enabled": state.dashboard_enabled,
+                    "created_at": state.updated_at,
+                    "updated_at": state.updated_at,
                 }
             page = repository.get_page(session, page_id)
             if page is None:
@@ -630,7 +653,8 @@ def create_app(
 
     @app.delete("/api/pages/{page_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_page(
-        page_id: int, session: SessionDependency,
+        page_id: int,
+        session: SessionDependency,
         x_csrf_token: Annotated[str | None, Header()] = None,
         inkpi_admin_session: Annotated[str | None, Cookie()] = None,
     ) -> Response:
@@ -651,7 +675,8 @@ def create_app(
 
     @app.put("/api/pages/order", response_model=list[PageRead])
     def reorder_pages(
-        payload: PageOrder, session: SessionDependency,
+        payload: PageOrder,
+        session: SessionDependency,
         x_csrf_token: Annotated[str | None, Header()] = None,
         inkpi_admin_session: Annotated[str | None, Cookie()] = None,
     ) -> list[object]:
@@ -848,7 +873,6 @@ def _device_uptime_seconds() -> float:
         return float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
     except (OSError, ValueError, IndexError):
         return 0.0
-
 
 
 def _wifi_qr_payload(ssid: str, password: str | None, security: str = "wpa2") -> str:

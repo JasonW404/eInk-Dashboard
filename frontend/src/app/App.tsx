@@ -171,15 +171,14 @@ function OverviewPage() {
 
   useEffect(() => {
     let active = true
-    Promise.all([api.health(), api.todos(), api.revision(), api.latestReports()])
-      .then(([, todoData, revisionData, reportData]) => {
+    Promise.allSettled([api.health(), api.todos(), api.revision(), api.latestReports()])
+      .then(([healthResult, todoResult, revisionResult, reportResult]) => {
         if (!active) return
-        setOnline(true)
-        setTodos(todoData)
-        setRevision(revisionData)
-        setReports(reportData)
+        setOnline(healthResult.status === 'fulfilled')
+        if (todoResult.status === 'fulfilled') setTodos(todoResult.value)
+        if (revisionResult.status === 'fulfilled') setRevision(revisionResult.value)
+        if (reportResult.status === 'fulfilled') setReports(reportResult.value)
       })
-      .catch(() => active && setOnline(false))
     return () => { active = false }
   }, [])
 
