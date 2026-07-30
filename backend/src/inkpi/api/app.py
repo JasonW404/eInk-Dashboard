@@ -20,8 +20,7 @@ from sqlalchemy.orm import Session
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from inkpi.network.auth import AdminAuthError, AdminAuthPolicy, extract_bearer_token
-from inkpi.network.helper_client import DEFAULT_HELPER_SOCKET, HelperClient
-from inkpi.network.operations import NetworkHelper, build_operation_request
+from inkpi.network.operations import NetworkHelper
 from inkpi import __version__
 from inkpi.api import repository
 from inkpi.api.database import build_engine, build_session_factory, get_session
@@ -30,9 +29,8 @@ from inkpi.api.display_renderer import (
     DisplayRenderError,
     PlaywrightDisplayRenderer,
 )
-from inkpi.api.hotspot_status import hotspot_is_active
+from inkpi.api.integrations import CloudIntegrationRunner
 from inkpi.api.models import Agent, Base
-from inkpi.api.network_status import connected_hotspot_clients
 from inkpi.api.schemas import (
     AgentCredentials,
     AgentHeartbeat,
@@ -44,6 +42,13 @@ from inkpi.api.schemas import (
     HotspotRead,
     HotspotCredentialsRead,
     HotspotUpdate,
+    GitHubIntegrationRead,
+    GitHubIntegrationUpdate,
+    CodexIntegrationRead,
+    IntegrationSettingsRead,
+    NetworkCommandRead,
+    NetworkCommandResult,
+    NetworkStatusUpdate,
     LoginRequest,
     ReportCreate,
     ReportRead,
@@ -79,15 +84,10 @@ def create_app(
     renderer = display_renderer or PlaywrightDisplayRenderer(
         render_base_url or os.getenv("INKPI_RENDER_BASE_URL", "http://127.0.0.1:8080")
     )
-    helper = network_helper or HelperClient(os.getenv("INKPI_NETWORK_HELPER_SOCKET", DEFAULT_HELPER_SOCKET))
     auth_policy = admin_auth or AdminAuthPolicy.from_environment()
-    client_counter = hotspot_client_counter or connected_hotspot_clients
-    active_checker = hotspot_active_checker or hotspot_is_active
+    integration_runner = CloudIntegrationRunner(session_factory)
     upload_root = Path(os.getenv("INKPI_UPLOAD_DIR", Path("~/.local/share/inkpi/pages").expanduser()))
     upload_root.mkdir(parents=True, exist_ok=True)
-
-    def current_hotspot_password() -> str | None:
-        return helper.get_hotspot_password() or os.getenv("INKPI_HOTSPOT_PASSWORD")
 
     def scheduled_page(session: Session) -> object | None:
         pages = [page for page in repository.list_pages(session) if page.enabled]
@@ -126,12 +126,27 @@ def create_app(
                 detail="remote display access requires INKPI_DISPLAY_TOKEN",
             )
 
+    def authorize_network_device(request: Request, authorization: str | None) -> None:
+        configured_token = os.getenv("INKPI_NETWORK_TOKEN")
+        client_host = request.client.host if request.client else ""
+        supplied_token = extract_bearer_token(authorization)
+        if configured_token:
+            if not supplied_token or not secrets.compare_digest(supplied_token, configured_token):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid network token")
+        elif client_host not in {"127.0.0.1", "::1", "testclient"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="remote network access requires INKPI_NETWORK_TOKEN",
+            )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         Base.metadata.create_all(engine)
         repository.initialize_schema(session_factory)
         app.state.session_factory = session_factory
+        integration_runner.start()
         yield
+        integration_runner.stop()
         renderer.close()
         engine.dispose()
 
@@ -254,9 +269,9 @@ def create_app(
                 detail="display context is local-only",
             )
         settings = repository.get_hotspot_settings(session)
-        hotspot_active = active_checker()
+        hotspot_active = settings.enabled
         qr_payload = None
-        hotspot_password = current_hotspot_password()
+        hotspot_password = settings.password or None
         if hotspot_active and (settings.security == "open" or hotspot_password):
             qr_payload = _wifi_qr_payload(settings.ssid, hotspot_password, settings.security)
         return DisplayContextRead(
@@ -343,11 +358,20 @@ def create_app(
     def network_settings(session: SessionDependency) -> HotspotRead:
         settings = repository.get_hotspot_settings(session)
         return HotspotRead(
-            enabled=active_checker(),
+            enabled=settings.enabled,
             ssid=settings.ssid,
             security=settings.security,
-            connected_clients=client_counter(),
+            connected_clients=settings.connected_clients,
             updated_at=settings.updated_at,
+            operation={
+                "status": settings.operation_status,
+                "message": settings.operation_message,
+                "network_last_seen": (
+                    settings.network_last_seen.isoformat()
+                    if settings.network_last_seen is not None
+                    else None
+                ),
+            },
         )
 
     @app.get("/api/settings/network/hotspot/credentials", response_model=HotspotCredentialsRead)
@@ -359,10 +383,9 @@ def create_app(
             auth_policy.validate_browser_session(inkpi_admin_session)
         except AdminAuthError as error:
             raise HTTPException(status_code=error.status, detail=str(error)) from error
-        settings = None
         with session_factory() as session:
             settings = repository.get_hotspot_settings(session)
-        password = current_hotspot_password() if settings.security != "open" else None
+            password = settings.password if settings.security != "open" else None
         if settings.security != "open" and not password:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="hotspot password is unavailable")
         response.headers["Cache-Control"] = "no-store"
@@ -403,7 +426,6 @@ def create_app(
         except AdminAuthError as error:
             raise HTTPException(status_code=error.status, detail=str(error)) from error
 
-        current = repository.get_hotspot_settings(session)
         if payload.enabled and payload.security != "open" and not payload.password:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -412,35 +434,92 @@ def create_app(
         action = "hotspot_disable"
         operation_payload: dict[str, object] = {}
         if payload.enabled:
-            action = "hotspot_configure" if current.enabled else "hotspot_enable"
+            action = "hotspot_configure"
             operation_payload = {
                 "ssid": payload.ssid,
                 "password": payload.password,
                 "mode": "visible",
                 "security": payload.security,
             }
-        operation = helper.submit(build_operation_request(action, operation_payload))
-        if operation.status == "failed":
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=operation.message,
-            )
         saved = repository.update_hotspot_settings(
             session,
             enabled=payload.enabled,
             ssid=payload.ssid,
             security=payload.security,
+            password=payload.password,
         )
+        command = repository.queue_network_command(session, action, operation_payload)
         repository.bump_revision(session)
         session.commit()
         return HotspotRead(
-            enabled=active_checker(),
+            enabled=saved.enabled,
             ssid=saved.ssid,
             security=saved.security,
-            connected_clients=client_counter(),
+            connected_clients=saved.connected_clients,
             updated_at=saved.updated_at,
-            operation=operation.to_payload(),
+            operation={
+                "operation_id": str(command.id),
+                "action": command.action,
+                "status": command.status,
+                "message": saved.operation_message,
+            },
         )
+
+    @app.get("/api/network/commands/next", response_model=NetworkCommandRead | None)
+    def next_network_command(
+        request: Request,
+        session: SessionDependency,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> NetworkCommandRead | None:
+        authorize_network_device(request, authorization)
+        with session.begin():
+            command = repository.claim_network_command(session)
+            if command is None:
+                return None
+            return NetworkCommandRead(
+                id=command.id,
+                action=command.action,
+                payload=command.payload,
+                created_at=command.created_at,
+            )
+
+    @app.post("/api/network/commands/{command_id}/result", status_code=status.HTTP_204_NO_CONTENT)
+    def network_command_result(
+        command_id: int,
+        payload: NetworkCommandResult,
+        request: Request,
+        session: SessionDependency,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        authorize_network_device(request, authorization)
+        with session.begin():
+            command = repository.complete_network_command(
+                session,
+                command_id,
+                status=payload.status,
+                message=payload.message,
+                hotspot_active=payload.hotspot_active,
+                connected_clients=payload.connected_clients,
+            )
+            if command is None:
+                raise HTTPException(status_code=404, detail="network command is not running")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.post("/api/network/status", status_code=status.HTTP_204_NO_CONTENT)
+    def network_status(
+        payload: NetworkStatusUpdate,
+        request: Request,
+        session: SessionDependency,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        authorize_network_device(request, authorization)
+        with session.begin():
+            repository.update_network_status(
+                session,
+                hotspot_active=payload.hotspot_active,
+                connected_clients=payload.connected_clients,
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.get("/api/pages", response_model=list[PageRead])
     def pages(session: SessionDependency) -> list[object]:
@@ -673,6 +752,71 @@ def create_app(
             )
             for report in repository.latest_reports(session)
         ]
+
+    def require_browser_session(
+        inkpi_admin_session: str | None,
+        csrf_token: str | None = None,
+    ) -> None:
+        try:
+            auth_policy.validate_browser_session(inkpi_admin_session, csrf_token)
+        except AdminAuthError as error:
+            raise HTTPException(status_code=error.status, detail=str(error)) from error
+
+    def integration_read(session: Session) -> IntegrationSettingsRead:
+        settings = repository.get_integration_settings(session)
+        return IntegrationSettingsRead(
+            github=GitHubIntegrationRead(
+                enabled=settings.github_enabled,
+                username=settings.github_username,
+                organization=settings.github_organization,
+                commit_email=settings.github_commit_email,
+                extra_repos=list(settings.github_extra_repos or []),
+                token_configured=bool(settings.github_token),
+                updated_at=settings.updated_at,
+            ),
+            codex=CodexIntegrationRead(
+                source="host-agent",
+                host_agent_required=True,
+                api_key_supported=False,
+                detail=(
+                    "Personal ChatGPT/Codex quota is not exposed by the OpenAI API. "
+                    "An OpenAI Admin API key reports API-platform usage instead."
+                ),
+            ),
+        )
+
+    @app.get("/api/settings/integrations", response_model=IntegrationSettingsRead)
+    def integration_settings(
+        session: SessionDependency,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
+    ) -> IntegrationSettingsRead:
+        require_browser_session(inkpi_admin_session)
+        return integration_read(session)
+
+    @app.put("/api/settings/integrations/github", response_model=IntegrationSettingsRead)
+    def update_github_integration(
+        payload: GitHubIntegrationUpdate,
+        session: SessionDependency,
+        inkpi_admin_session: Annotated[str | None, Cookie()] = None,
+        x_csrf_token: Annotated[str | None, Header()] = None,
+    ) -> IntegrationSettingsRead:
+        require_browser_session(inkpi_admin_session, x_csrf_token)
+        if payload.enabled and not payload.username:
+            raise HTTPException(status_code=422, detail="GitHub username is required when enabled")
+        with session.begin():
+            settings = repository.get_integration_settings(session)
+            settings.github_enabled = payload.enabled
+            settings.github_username = payload.username
+            settings.github_organization = payload.organization
+            settings.github_commit_email = payload.commit_email
+            settings.github_extra_repos = payload.extra_repos
+            if payload.clear_token:
+                settings.github_token = ""
+            elif payload.token:
+                settings.github_token = payload.token.strip()
+            settings.updated_at = repository.utc_now()
+        integration_runner.request_collection()
+        return integration_read(session)
 
     repository_root = Path(__file__).parents[4]
     static_root = Path(web_dist) if web_dist else repository_root / "frontend" / "dist"

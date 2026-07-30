@@ -22,9 +22,15 @@ cd "${PACKAGING_DIR}"
 "${ROOT_DIR}/backend/.venv/bin/pyinstaller" \
   --noconfirm --clean \
   --distpath "${OUTPUT_DIR}" \
+  --workpath "${ROOT_DIR}/build/pyinstaller/network" \
+  inkpi-network.spec
+"${ROOT_DIR}/backend/.venv/bin/pyinstaller" \
+  --noconfirm --clean \
+  --distpath "${OUTPUT_DIR}" \
   --workpath "${ROOT_DIR}/build/pyinstaller/host-agent" \
   inkpi-host-agent.spec
 
 "${OUTPUT_DIR}/inkpi-cloud/inkpi-api" --help >/dev/null
 "${OUTPUT_DIR}/inkpi-display/inkpi-display" --help >/dev/null
+"${OUTPUT_DIR}/inkpi-network/inkpi-network" --help >/dev/null
 "${OUTPUT_DIR}/inkpi-host-agent/inkpi-host-agent" --help >/dev/null

@@ -125,6 +125,14 @@ dt { color: #666; } dd { margin: 0; font-weight: 700; text-align: right; }
 .settings-actions .primary-button { background: #000; color: #fff; }
 .settings-actions button:disabled { border-color: #ccc; color: #aaa; background: #f5f5f5; cursor: default; }
 .settings-message { border-left: 3px solid #000; padding: 8px 12px; font-size: 11px; }
+.integration-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; align-items: start; }
+.integration-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; font-size: 10px; letter-spacing: .06em; }
+.integration-form { grid-template-columns: 1fr 1fr; }
+.settings-form .wide-setting { grid-column: 1 / -1; }
+.settings-form textarea { width: 100%; min-height: 76px; resize: vertical; border: 1px solid #aaa; color: #000; background: #fff; padding: 10px; }
+.settings-form .toggle-setting { display: flex; grid-column: 1 / -1; grid-template-columns: auto 1fr; align-items: center; justify-content: flex-start; gap: 8px; }
+.settings-form .toggle-setting input { width: auto; }
+.settings-note { margin-top: 16px; border: 1px solid #aaa; padding: 12px; font-size: 11px; line-height: 1.5; }
 .wifi-qr { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; align-self: center; border: 1px solid #000; padding: 16px; }
 .wifi-qr p { margin: 10px 0 0; font-size: 10px; }
 .web-calendar-wrap { justify-self: center; }
@@ -325,6 +333,7 @@ dt { color: #666; } dd { margin: 0; font-weight: 700; text-align: right; }
   .overview-right { min-height: auto; }
   .github-content { grid-template-columns: max-content 1px minmax(0, 1fr); }
   .settings-grid { grid-template-columns: 1fr; }
+  .integration-grid { grid-template-columns: 1fr; }
   .network-body { flex-direction: column; }
   .wifi-qr { align-self: flex-start; }
   .settings-form { grid-template-columns: 1fr; }

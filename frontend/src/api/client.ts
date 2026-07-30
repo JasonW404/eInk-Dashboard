@@ -69,6 +69,24 @@ export interface AuthSession {
   csrf_token: string | null
 }
 
+export interface IntegrationSettings {
+  github: {
+    enabled: boolean
+    username: string
+    organization: string
+    commit_email: string
+    extra_repos: string[]
+    token_configured: boolean
+    updated_at: string
+  }
+  codex: {
+    source: string
+    host_agent_required: boolean
+    api_key_supported: boolean
+    detail: string
+  }
+}
+
 let csrfToken: string | null = null
 
 export function apiPath(path: string, pathname = window.location.pathname): string {
@@ -133,6 +151,20 @@ export const api = {
   networkSettings: () => request<HotspotSettings>('/api/settings/network'),
   hotspotCredentials: () => request<{ password: string | null }>('/api/settings/network/hotspot/credentials'),
   systemSettings: () => request<SystemInfo>('/api/settings/system'),
+  integrationSettings: () => request<IntegrationSettings>('/api/settings/integrations'),
+  updateGitHubIntegration: (settings: {
+    enabled: boolean
+    username: string
+    organization: string
+    commit_email: string
+    extra_repos: string[]
+    token?: string
+    clear_token?: boolean
+  }) => request<IntegrationSettings>('/api/settings/integrations/github', {
+    method: 'PUT',
+    headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined,
+    body: JSON.stringify(settings),
+  }),
   updateHotspot: (
     changes: { enabled: boolean; ssid: string; security: HotspotSecurity; password?: string },
   ) => request<HotspotSettings>('/api/settings/network/hotspot', {

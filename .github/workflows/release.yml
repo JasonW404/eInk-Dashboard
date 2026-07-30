@@ -98,6 +98,18 @@ jobs:
           chmod +x "${DISPLAY}/install.sh" "${DISPLAY}/uninstall.sh"
           tar czf "${DISPLAY}.tar.gz" "${DISPLAY}"
 
+          NETWORK="inkpi-network-${VERSION}-linux-${ARCH}"
+          mkdir -p "${NETWORK}/env" "${NETWORK}/systemd"
+          cp -a build/standalone/inkpi-network "${NETWORK}/"
+          cp deploy/env/pi-network.env.example "${NETWORK}/env/"
+          cp deploy/systemd/inkpi-network.service "${NETWORK}/systemd/"
+          cp packaging/install_network_bundle.sh "${NETWORK}/install.sh"
+          cp deploy/uninstall_network.sh "${NETWORK}/uninstall.sh"
+          cp VERSION "${NETWORK}/"
+          printf '%s\n' "${ARCH}" > "${NETWORK}/ARCH"
+          chmod +x "${NETWORK}/install.sh" "${NETWORK}/uninstall.sh"
+          tar czf "${NETWORK}.tar.gz" "${NETWORK}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: inkpi-bundles-${{ matrix.arch }}

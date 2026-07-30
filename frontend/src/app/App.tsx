@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import Cropper from 'cropperjs'
 import 'cropperjs/dist/cropper.css'
-import { api, apiPath, type DisplayPage, type DisplayRevision, type HotspotSecurity, type HotspotSettings, type LatestReport, type SystemInfo, type Todo, type TodoDisplaySettings, type TodoSort } from '../api/client'
+import { api, apiPath, type DisplayPage, type DisplayRevision, type HotspotSecurity, type HotspotSettings, type IntegrationSettings, type LatestReport, type SystemInfo, type Todo, type TodoDisplaySettings, type TodoSort } from '../api/client'
 import { appPath, routeFromPathname, type AppRoute } from './basePath'
 
 declare const __APP_VERSION__: string
@@ -718,15 +718,31 @@ function SettingsPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [integrations, setIntegrations] = useState<IntegrationSettings | null>(null)
+  const [githubEnabled, setGithubEnabled] = useState(false)
+  const [githubUsername, setGithubUsername] = useState('')
+  const [githubOrganization, setGithubOrganization] = useState('')
+  const [githubCommitEmail, setGithubCommitEmail] = useState('')
+  const [githubExtraRepos, setGithubExtraRepos] = useState('')
+  const [githubToken, setGithubToken] = useState('')
+  const [clearGithubToken, setClearGithubToken] = useState(false)
+  const [integrationMessage, setIntegrationMessage] = useState('')
+  const [savingIntegration, setSavingIntegration] = useState(false)
 
   useEffect(() => {
-    Promise.all([api.networkSettings(), api.systemSettings(), api.hotspotCredentials().catch(() => null)])
-      .then(([settings, systemInfo, credentials]) => {
+    Promise.all([api.networkSettings(), api.systemSettings(), api.hotspotCredentials().catch(() => null), api.integrationSettings()])
+      .then(([settings, systemInfo, credentials, integrationSettings]) => {
         setNetwork(settings)
         setSystem(systemInfo)
         setSsid(settings.ssid)
         setSecurity(settings.security)
         setPassword(credentials?.password ?? '')
+        setIntegrations(integrationSettings)
+        setGithubEnabled(integrationSettings.github.enabled)
+        setGithubUsername(integrationSettings.github.username)
+        setGithubOrganization(integrationSettings.github.organization)
+        setGithubCommitEmail(integrationSettings.github.commit_email)
+        setGithubExtraRepos(integrationSettings.github.extra_repos.join('\n'))
       })
       .catch((reason: Error) => setMessage(reason.message))
   }, [])
@@ -750,6 +766,30 @@ function SettingsPage() {
       setMessage(reason instanceof Error ? reason.message : 'Network request failed')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const saveGitHub = async () => {
+    setSavingIntegration(true)
+    setIntegrationMessage('')
+    try {
+      const updated = await api.updateGitHubIntegration({
+        enabled: githubEnabled,
+        username: githubUsername.trim(),
+        organization: githubOrganization.trim(),
+        commit_email: githubCommitEmail.trim(),
+        extra_repos: githubExtraRepos.split(/\s+/).filter(Boolean),
+        ...(githubToken ? { token: githubToken } : {}),
+        clear_token: clearGithubToken,
+      })
+      setIntegrations(updated)
+      setGithubToken('')
+      setClearGithubToken(false)
+      setIntegrationMessage('GitHub settings saved. Cloud collection has been scheduled.')
+    } catch (reason) {
+      setIntegrationMessage(reason instanceof Error ? reason.message : 'GitHub settings could not be saved')
+    } finally {
+      setSavingIntegration(false)
     }
   }
 
@@ -785,21 +825,50 @@ function SettingsPage() {
                 <label>Security<select value={security} onChange={(event) => setSecurity(event.target.value as HotspotSecurity)}><option value="wpa2">WPA2</option><option value="wpa3">WPA3</option><option value="wpa2-wpa3">WPA2 / WPA3</option><option value="open">Open (no password)</option></select></label>
                 <label className="password-setting">Password<div className="password-field"><input disabled={security === 'open'} type={showPassword ? 'text' : 'password'} value={password} minLength={8} maxLength={63} autoComplete="new-password" onChange={(event) => {
                   setPassword(event.target.value)
-                }} placeholder={security === 'open' ? 'Not required for an open network' : 'Stored in protected NetworkManager profile'} /><button disabled={security === 'open'} type="button" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword} aria-label={showPassword ? 'Hide hotspot password' : 'Show hotspot password'}>{showPassword ? 'HIDE' : 'SHOW'}</button></div></label>
+                }} placeholder={security === 'open' ? 'Not required for an open network' : 'Sent securely to the Pi network service'} /><button disabled={security === 'open'} type="button" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword} aria-label={showPassword ? 'Hide hotspot password' : 'Show hotspot password'}>{showPassword ? 'HIDE' : 'SHOW'}</button></div></label>
               </div>
               <DefinitionList rows={[
                 ['Connected devices', String(network?.connected_clients ?? '—')],
                 ['Updated', network ? new Date(network.updated_at).toLocaleString() : '—'],
+                ['Last operation', String(network?.operation?.status ?? 'idle')],
+                ['Pi network seen', typeof network?.operation?.network_last_seen === 'string' ? new Date(network.operation.network_last_seen).toLocaleString() : 'Never'],
               ]} />
               <div className="settings-actions">
                 <button className="primary-button" disabled={saving || !ssid.trim()} onClick={() => void save(true)}>{network?.enabled ? 'Apply & Restart' : 'Enable Hotspot'}</button>
                 <button disabled={saving || !network?.enabled} onClick={() => void save(false)}>Disable</button>
               </div>
               {message && <p className="settings-message" role="status">{message}</p>}
-              <p className="muted">The password is stored only in NetworkManager's protected hotspot profile and is available after login.</p>
+              <p className="muted">Cloud queues this desired state. The authenticated Pi network service polls it, applies the NetworkManager change locally, and reports the result.</p>
             </div>
             {network?.enabled && (security === 'open' || password) && <div className="wifi-qr"><QRCodeSVG value={wifiQrValue(ssid, password, security)} size={132} level="M" marginSize={2} title={`Connect to ${ssid}`} /><p>Scan to join {ssid}</p></div>}
           </div>
+        </Panel>
+      </section>
+      <section className="integration-grid">
+        <Panel title="GitHub Activity">
+          <div className="integration-status"><Status online={githubEnabled && Boolean(githubUsername)} /><span>{integrations?.github.token_configured ? 'AUTHENTICATED' : 'PUBLIC DATA ONLY'}</span></div>
+          <div className="settings-form integration-form">
+            <label className="toggle-setting"><input type="checkbox" checked={githubEnabled} onChange={(event) => setGithubEnabled(event.target.checked)} /> Enable Cloud collection</label>
+            <label>Watching account<input value={githubUsername} maxLength={120} placeholder="GitHub username" onChange={(event) => setGithubUsername(event.target.value)} /></label>
+            <label>Organization<input value={githubOrganization} maxLength={120} placeholder="Optional organization" onChange={(event) => setGithubOrganization(event.target.value)} /></label>
+            <label>Commit email<input value={githubCommitEmail} maxLength={320} placeholder="Optional commit identity" onChange={(event) => setGithubCommitEmail(event.target.value)} /></label>
+            <label className="wide-setting">Additional repositories<textarea value={githubExtraRepos} placeholder={'owner/repository\\none per line'} onChange={(event) => setGithubExtraRepos(event.target.value)} /></label>
+            <label className="wide-setting">GitHub token<input type="password" value={githubToken} autoComplete="new-password" placeholder={integrations?.github.token_configured ? 'Token is configured; leave blank to keep it' : 'Optional for public data'} onChange={(event) => setGithubToken(event.target.value)} /></label>
+            {integrations?.github.token_configured && <label className="toggle-setting wide-setting"><input type="checkbox" checked={clearGithubToken} onChange={(event) => setClearGithubToken(event.target.checked)} /> Remove stored token</label>}
+          </div>
+          <div className="settings-actions"><button className="primary-button" disabled={savingIntegration || (githubEnabled && !githubUsername.trim())} onClick={() => void saveGitHub()}>{savingIntegration ? 'SAVING…' : 'Save GitHub settings'}</button></div>
+          {integrationMessage && <p className="settings-message" role="status">{integrationMessage}</p>}
+          <p className="muted">The token is stored by InkPi Cloud and is never returned to the browser. A token is recommended to avoid anonymous rate limits and include authorized private activity.</p>
+        </Panel>
+        <Panel title="Codex Usage">
+          <div className="integration-status"><Status online={false} /><span>HOST AGENT REQUIRED</span></div>
+          <DefinitionList rows={[
+            ['Source', 'Local Codex account session'],
+            ['API token', 'Not supported for personal quota'],
+            ['Current collector', integrations?.codex.source ?? 'host-agent'],
+          ]} />
+          <p className="muted">{integrations?.codex.detail ?? 'Checking Codex capability…'}</p>
+          <p className="settings-note">OpenAI Admin API keys can report API-platform requests, tokens, and costs. Those values are separate from the ChatGPT/Codex weekly allowance and cannot replace its remaining-percentage metric.</p>
         </Panel>
       </section>
     </Page>

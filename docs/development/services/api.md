@@ -11,13 +11,19 @@ the HTTP contracts consumed by browsers, the display process, and host agents.
 | Health | `GET /api/health` |
 | TODO | `GET/POST /api/todos`, `PATCH/DELETE /api/todos/{id}`, `PUT /api/todos/order` |
 | Display | `GET /api/display/revision`, `GET /api/display/image`, `GET /api/display/context`, `POST /api/display/refresh` |
-| Settings | `GET /api/settings/system`, `GET /api/settings/network`, `PUT /api/settings/network/hotspot` |
+| Settings | `GET /api/settings/system`, `GET /api/settings/network`, `PUT /api/settings/network/hotspot`, `GET /api/settings/integrations`, `PUT /api/settings/integrations/github` |
 | Agents | `POST /api/agents/register`, `POST /api/agents/{id}/heartbeat`, `POST /api/agents/{id}/reports` |
 | Reports | `GET /api/reports/latest` |
+| Pi network | `GET /api/network/commands/next`, `POST /api/network/commands/{id}/result` |
 | Frontend | `GET /`, `/todo`, `/settings`, and `/eink.html` when `frontend/dist/` exists |
 
 TODO mutations and reordering increment the display revision transactionally.
 Latest-report reads omit expired reports.
+
+GitHub integration tokens are write-only through the HTTP contract and the
+SQLite file that contains them is forced to mode `0600`. A normal OpenAI API
+key is intentionally not accepted for the Codex card: API organization usage
+does not expose the personal ChatGPT/Codex realtime allowance.
 
 ## Authentication boundaries
 
@@ -28,6 +34,8 @@ Latest-report reads omit expired reports.
 - Revision polling, rendered-image download, and display telemetry use
   `INKPI_DISPLAY_TOKEN`. Without it, those device routes accept loopback only.
 - `/api/display/context` is always loopback-only.
+- Pi network command polling and results require the separate
+  `INKPI_NETWORK_TOKEN`; the Pi needs no inbound listening port.
 
 Health and browser-facing reads remain public to the deployed Web application;
 device revision and image routes require the display credential remotely.

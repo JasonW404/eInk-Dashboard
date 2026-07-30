@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 import hashlib
+import secrets
 from uuid import uuid4
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from inkpi.api.models import Agent, DisplayPage, DisplayState, HotspotSettings, Report, Todo, utc_now
+from inkpi.api.models import Agent, DisplayPage, DisplayState, HotspotSettings, IntegrationSettings, NetworkCommand, Report, Todo, utc_now
 from inkpi.api.schemas import TodoCreate, TodoUpdate
 
 
@@ -57,6 +58,18 @@ def initialize_schema(session_factory: sessionmaker[Session]) -> None:
             session.connection().exec_driver_sql(
                 "ALTER TABLE hotspot_settings ADD COLUMN security VARCHAR(16) NOT NULL DEFAULT 'wpa2'"
             )
+        for name, definition in (
+            ("desired_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("password", "TEXT NOT NULL DEFAULT ''"),
+            ("connected_clients", "INTEGER NOT NULL DEFAULT 0"),
+            ("operation_status", "VARCHAR(20) NOT NULL DEFAULT 'idle'"),
+            ("operation_message", "TEXT NOT NULL DEFAULT ''"),
+            ("network_last_seen", "DATETIME"),
+        ):
+            if hotspot_columns and name not in hotspot_columns:
+                session.connection().exec_driver_sql(
+                    f"ALTER TABLE hotspot_settings ADD COLUMN {name} {definition}"
+                )
         page_info = list(session.connection().exec_driver_sql("PRAGMA table_info(display_pages)"))
         page_columns = {row[1] for row in page_info}
         if page_columns and "kind" not in page_columns:
@@ -102,10 +115,101 @@ def initialize_schema(session_factory: sessionmaker[Session]) -> None:
                 state.revision = str(uuid4())
         if session.get(HotspotSettings, 1) is None:
             session.add(HotspotSettings(id=1))
+        if session.get(IntegrationSettings, 1) is None:
+            session.add(IntegrationSettings(id=1))
 
 
 def list_todos(session: Session) -> list[Todo]:
     return list(session.scalars(select(Todo).order_by(Todo.sort_order, Todo.id)))
+
+
+def get_integration_settings(session: Session) -> IntegrationSettings:
+    settings = session.get(IntegrationSettings, 1)
+    if settings is None:
+        settings = IntegrationSettings(id=1)
+        session.add(settings)
+        session.flush()
+    return settings
+
+
+def queue_network_command(
+    session: Session,
+    action: str,
+    payload: dict[str, object],
+) -> NetworkCommand:
+    session.execute(
+        update(NetworkCommand)
+        .where(NetworkCommand.status.in_(("queued", "running")))
+        .values(status="superseded", payload={}, updated_at=utc_now())
+    )
+    command = NetworkCommand(action=action, payload=payload)
+    session.add(command)
+    session.flush()
+    return command
+
+
+def claim_network_command(session: Session) -> NetworkCommand | None:
+    command = session.scalar(
+        select(NetworkCommand)
+        .where(NetworkCommand.status == "queued")
+        .order_by(NetworkCommand.id)
+        .limit(1)
+    )
+    if command is not None:
+        command.status = "running"
+        command.updated_at = utc_now()
+        session.flush()
+    return command
+
+
+def complete_network_command(
+    session: Session,
+    command_id: int,
+    *,
+    status: str,
+    message: str,
+    hotspot_active: bool,
+    connected_clients: int,
+) -> NetworkCommand | None:
+    command = session.get(NetworkCommand, command_id)
+    if command is None or command.status != "running":
+        return None
+    command.status = status
+    command.message = message
+    command.payload = {}
+    command.updated_at = utc_now()
+    settings = get_hotspot_settings(session)
+    settings.enabled = hotspot_active
+    settings.connected_clients = connected_clients
+    settings.operation_status = status
+    settings.operation_message = message
+    settings.network_last_seen = utc_now()
+    settings.updated_at = utc_now()
+    session.flush()
+    return command
+
+
+def update_network_status(
+    session: Session,
+    *,
+    hotspot_active: bool,
+    connected_clients: int,
+) -> HotspotSettings:
+    settings = get_hotspot_settings(session)
+    settings.enabled = hotspot_active
+    settings.connected_clients = connected_clients
+    settings.network_last_seen = utc_now()
+    session.flush()
+    return settings
+
+
+def get_or_create_cloud_agent(session: Session) -> Agent:
+    agent = session.scalar(select(Agent).where(Agent.name == "inkpi-cloud"))
+    if agent is None:
+        agent = Agent(name="inkpi-cloud", token_hash=hashlib.sha256(secrets.token_bytes(32)).hexdigest())
+        session.add(agent)
+        session.flush()
+    return agent
 
 
 def get_todo(session: Session, todo_id: int) -> Todo | None:
@@ -227,11 +331,18 @@ def update_hotspot_settings(
     enabled: bool,
     ssid: str,
     security: str,
+    password: str | None = None,
 ) -> HotspotSettings:
     settings = get_hotspot_settings(session)
-    settings.enabled = enabled
+    settings.desired_enabled = enabled
     settings.ssid = ssid
     settings.security = security
+    if security == "open":
+        settings.password = ""
+    elif password is not None:
+        settings.password = password
+    settings.operation_status = "queued"
+    settings.operation_message = "Waiting for Pi network service"
     settings.updated_at = utc_now()
     session.flush()
     return settings
@@ -367,5 +478,16 @@ def latest_reports(session: Session) -> list[Report]:
     )
     latest: dict[str, Report] = {}
     for report in reports:
-        latest.setdefault(report.type, report)
+        current = latest.get(report.type)
+        if current is None:
+            latest[report.type] = report
+            continue
+        # GitHub is cloud-owned once WebUI collection has produced a report;
+        # a legacy HostAgent submission must not replace it merely by arriving later.
+        if (
+            report.type == "github"
+            and current.agent.name != "inkpi-cloud"
+            and report.agent.name == "inkpi-cloud"
+        ):
+            latest[report.type] = report
     return list(latest.values())

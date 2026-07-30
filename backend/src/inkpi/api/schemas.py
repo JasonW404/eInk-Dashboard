@@ -120,6 +120,76 @@ class HotspotCredentialsRead(BaseModel):
     password: str | None
 
 
+class NetworkCommandRead(BaseModel):
+    id: int
+    action: str
+    payload: dict[str, object]
+    created_at: datetime
+
+
+class NetworkCommandResult(BaseModel):
+    status: str = Field(pattern="^(succeeded|failed)$")
+    message: str = Field(default="", max_length=1000)
+    hotspot_active: bool
+    connected_clients: int = Field(default=0, ge=0)
+
+
+class NetworkStatusUpdate(BaseModel):
+    hotspot_active: bool
+    connected_clients: int = Field(default=0, ge=0)
+
+
+class GitHubIntegrationUpdate(BaseModel):
+    enabled: bool = False
+    username: str = Field(default="", max_length=120)
+    organization: str = Field(default="", max_length=120)
+    commit_email: str = Field(default="", max_length=320)
+    extra_repos: list[str] = Field(default_factory=list, max_length=100)
+    token: str | None = Field(default=None, max_length=1000)
+    clear_token: bool = False
+
+    @field_validator("username", "organization", "commit_email")
+    @classmethod
+    def strip_integration_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("extra_repos")
+    @classmethod
+    def validate_extra_repos(cls, values: list[str]) -> list[str]:
+        result: list[str] = []
+        for value in values:
+            repo = value.strip()
+            if not repo:
+                continue
+            if repo.count("/") != 1 or any(part.strip() != part or not part for part in repo.split("/")):
+                raise ValueError("extra repositories must use owner/repository format")
+            if repo not in result:
+                result.append(repo)
+        return result
+
+
+class GitHubIntegrationRead(BaseModel):
+    enabled: bool
+    username: str
+    organization: str
+    commit_email: str
+    extra_repos: list[str]
+    token_configured: bool
+    updated_at: datetime
+
+
+class CodexIntegrationRead(BaseModel):
+    source: str
+    host_agent_required: bool
+    api_key_supported: bool
+    detail: str
+
+
+class IntegrationSettingsRead(BaseModel):
+    github: GitHubIntegrationRead
+    codex: CodexIntegrationRead
+
+
 class PageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

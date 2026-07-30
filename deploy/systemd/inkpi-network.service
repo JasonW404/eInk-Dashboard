@@ -1,0 +1,25 @@
+[Unit]
+Description=InkPi Raspberry Pi Network Service
+After=NetworkManager.service network-online.target
+Wants=network-online.target
+Requires=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/inkpi/network/current
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/inkpi/pi-network.env
+ExecStart=/opt/inkpi/network/current/inkpi-network/inkpi-network
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+SuccessExitStatus=143 SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

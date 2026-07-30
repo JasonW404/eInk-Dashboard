@@ -9,6 +9,8 @@ All contributors and coding agents must follow [CODE_OF_CONDUCT.md](CODE_OF_COND
 - Pi service: `inkpi-display` only polls authenticated revisions/PNGs and owns
   the Waveshare 4.26-inch 800×480 panel.
 - Optional service: `inkpi-host-agent` reports to the cloud API.
+- Pi service: `inkpi-network` polls authenticated desired network state and is
+  the sole NetworkManager owner.
 - The Pi runtime must not depend on Bun, Chromium, FastAPI, SQLAlchemy, or a
   local application database.
 - Tagged deployment artifacts are native PyInstaller bundles for Linux amd64

@@ -55,8 +55,40 @@ class HotspotSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    desired_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ssid: Mapped[str] = mapped_column(String(32), nullable=False, default="InkPi-AP")
     security: Mapped[str] = mapped_column(String(16), nullable=False, default="wpa2")
+    password: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    connected_clients: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    operation_status: Mapped[str] = mapped_column(String(20), nullable=False, default="idle")
+    operation_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    network_last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class NetworkCommand(Base):
+    __tablename__ = "network_commands"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class IntegrationSettings(Base):
+    __tablename__ = "integration_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    github_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    github_username: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    github_organization: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    github_commit_email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    github_extra_repos: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    github_token: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    codex_source: Mapped[str] = mapped_column(String(32), nullable=False, default="host-agent")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 

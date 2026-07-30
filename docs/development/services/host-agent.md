@@ -4,6 +4,11 @@
 application state, serve Web pages, or control the eInk panel. It registers
 with the Pi API, sends heartbeats, and uploads expiring Codex and GitHub reports.
 
+Codex quota collection remains HostAgent-owned because it requires the
+authenticated local Codex CLI session. When GitHub collection is enabled in
+the Cloud WebUI, Cloud owns the GitHub report and takes precedence over legacy
+GitHub reports submitted by a HostAgent.
+
 ## Collectors
 
 | Collector | Source | Default interval |

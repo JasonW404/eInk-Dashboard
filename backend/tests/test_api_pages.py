@@ -182,9 +182,20 @@ def test_open_hotspot_needs_no_password_and_has_no_secret(tmp_path: Path) -> Non
         )
         assert enabled.status_code == 200
         assert enabled.json()["security"] == "open"
-        assert enabled.json()["operation"]["safe_details"]["security"] == "open"
+        assert enabled.json()["operation"]["action"] == "hotspot_configure"
+        assert enabled.json()["operation"]["status"] == "queued"
 
         login = client.post("/api/auth/login", json={"token": "admin-secret"})
         assert login.status_code == 200
         assert client.get("/api/settings/network/hotspot/credentials").json() == {"password": None}
+        command = client.get("/api/network/commands/next").json()
+        client.post(
+            f"/api/network/commands/{command['id']}/result",
+            json={
+                "status": "succeeded",
+                "message": "done",
+                "hotspot_active": True,
+                "connected_clients": 0,
+            },
+        )
         assert client.get("/api/display/context").json()["wifi_qr_payload"] == "WIFI:T:nopass;S:InkPi Open;;"

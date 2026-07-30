@@ -108,11 +108,13 @@ if [[ ! -f "${CLOUD_ENV}" || "${RECONFIGURE}" == true ]]; then
   echo "Configure InkPi Cloud. Secret values are hidden while typing."
   prompt_secret admin_token "Admin token"
   prompt_secret display_token "Display token shared with the Pi"
+  prompt_secret network_token "Network token shared with the Pi network service"
   prompt_secret enrollment_token "HostAgent enrollment token"
   config_temporary="$(mktemp)"
   {
     printf 'INKPI_ADMIN_TOKEN=%s\n' "${admin_token}"
     printf 'INKPI_DISPLAY_TOKEN=%s\n' "${display_token}"
+    printf 'INKPI_NETWORK_TOKEN=%s\n' "${network_token}"
     printf 'INKPI_AGENT_ENROLLMENT_TOKEN=%s\n' "${enrollment_token}"
     printf 'INKPI_DATABASE_URL=sqlite+pysqlite:////var/lib/inkpi/inkpi.db\n'
     printf 'INKPI_UPLOAD_DIR=/var/lib/inkpi/pages\n'
@@ -120,12 +122,13 @@ if [[ ! -f "${CLOUD_ENV}" || "${RECONFIGURE}" == true ]]; then
   } > "${config_temporary}"
   install -o root -g root -m 0600 "${config_temporary}" "${CLOUD_ENV}"
   rm -f "${config_temporary}"
-  unset admin_token display_token enrollment_token
+  unset admin_token display_token network_token enrollment_token
 fi
 [[ $(stat -c '%U:%G' "${CLOUD_ENV}") == "root:root" ]] || fail "${CLOUD_ENV} must be owned by root:root"
 [[ -z "$(find "${CLOUD_ENV}" -perm /077 -print -quit)" ]] || fail "${CLOUD_ENV} must use mode 0600"
 grep -Eq '^[[:space:]]*INKPI_ADMIN_TOKEN=.+$' "${CLOUD_ENV}" || fail "INKPI_ADMIN_TOKEN is required"
 grep -Eq '^[[:space:]]*INKPI_DISPLAY_TOKEN=.+$' "${CLOUD_ENV}" || fail "INKPI_DISPLAY_TOKEN is required"
+grep -Eq '^[[:space:]]*INKPI_NETWORK_TOKEN=.+$' "${CLOUD_ENV}" || fail "INKPI_NETWORK_TOKEN is required"
 grep -q 'replace-with-' "${CLOUD_ENV}" && fail "replace all placeholder tokens in ${CLOUD_ENV}"
 
 if ! command -v chromium >/dev/null 2>&1; then

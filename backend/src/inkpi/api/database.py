@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from fastapi import Request
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 
@@ -26,11 +26,18 @@ def build_engine(database_url: str | None = None) -> Engine:
 
     url = database_url or default_database_url()
     prefix = "sqlite+pysqlite:///"
+    database_file: Path | None = None
     if url.startswith(prefix):
         database_path = url.removeprefix(prefix)
         if database_path and database_path != ":memory:":
-            Path(database_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
-    return create_engine(url)
+            database_file = Path(database_path).expanduser()
+            database_file.parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(url)
+    if database_file is not None:
+        @event.listens_for(engine, "connect")
+        def protect_database_file(*_: object) -> None:
+            database_file.chmod(0o600)
+    return engine
 
 
 def build_session_factory(engine: Engine) -> sessionmaker[Session]:

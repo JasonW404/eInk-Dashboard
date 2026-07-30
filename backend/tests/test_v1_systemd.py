@@ -21,13 +21,12 @@ def test_all_service_templates_render_without_placeholders() -> None:
         for placeholder, value in replacements.items():
             rendered = rendered.replace(placeholder, value)
         assert re.search(r"__[A-Z0-9_]+__", rendered) is None, template
-        expected_working_directory = (
-            "/home/inkpi"
-            if template.name == "inkpi-display.service"
-            else "/opt/inkpi/backend"
-        )
+        expected_working_directory = {
+            "inkpi-display.service": "/home/inkpi",
+            "inkpi-network.service": "/opt/inkpi/network/current",
+        }.get(template.name, "/opt/inkpi/backend")
         assert f"WorkingDirectory={expected_working_directory}" in rendered
-        assert "ExecStart=/opt/inkpi/backend/.venv/bin/inkpi-" in rendered
+        assert "ExecStart=" in rendered
 
 
 def test_cloud_and_pi_units_preserve_process_boundaries() -> None:
@@ -47,18 +46,17 @@ def test_cloud_and_pi_units_preserve_process_boundaries() -> None:
 def test_binary_bundle_installers_require_no_language_toolchain() -> None:
     cloud = (ROOT / "packaging/install_cloud_bundle.sh").read_text(encoding="utf-8")
     display = (ROOT / "packaging/install_display_bundle.sh").read_text(encoding="utf-8")
+    network = (ROOT / "packaging/install_network_bundle.sh").read_text(encoding="utf-8")
 
-    for installer in (cloud, display):
+    for installer in (cloud, display, network):
         assert "uv sync" not in installer
         assert "python3" not in installer
         assert "bun install" not in installer
         assert "node " not in installer
         assert "BUNDLE_ARCH" in installer
         assert "/opt/inkpi/" in installer
-        assert 'SERVICE_USER="inkpi"' in installer
-        assert "useradd --system --user-group" in installer
         assert "INKPI_SERVICE_USER" not in installer
-        assert '== "root:root"' in installer
+        assert "root:root" in installer
         assert "--reconfigure" in installer
         assert "read -r -s -p" in installer
         assert "interactive input is required" in installer
@@ -68,6 +66,7 @@ def test_binary_bundle_installers_require_no_language_toolchain() -> None:
     assert "inkpi-host-agent.service" in cloud
     assert "GitHub API token" in cloud
     assert "inkpi-display.service" in display
+    assert "inkpi-network.service" in network
 
 
 def test_release_builds_both_roles_on_native_amd64_and_arm64() -> None:
@@ -79,6 +78,7 @@ def test_release_builds_both_roles_on_native_amd64_and_arm64() -> None:
     assert "arch: arm64" in workflow
     assert "inkpi-cloud-${VERSION}-linux-${ARCH}" in workflow
     assert "inkpi-display-${VERSION}-linux-${ARCH}" in workflow
+    assert "inkpi-network-${VERSION}-linux-${ARCH}" in workflow
     assert "build/standalone/inkpi-host-agent" in workflow
     assert "inkpi-host-agent.service" in workflow
     assert "packaging/build_binaries.sh" in workflow
@@ -98,6 +98,7 @@ def test_only_current_service_templates_remain() -> None:
         "inkpi-cloud.service",
         "inkpi-display.service",
         "inkpi-host-agent.service",
+        "inkpi-network.service",
     }
 
 

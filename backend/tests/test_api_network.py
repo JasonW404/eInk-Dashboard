@@ -39,7 +39,7 @@ def test_hotspot_settings_require_admin_auth_and_never_return_password(tmp_path:
         initial = client.get("/api/settings/network")
         assert initial.status_code == 200
         assert initial.json()["enabled"] is False
-        assert initial.json()["connected_clients"] == 2
+        assert initial.json()["connected_clients"] == 0
 
         denied = client.put(
             "/api/settings/network/hotspot",
@@ -54,11 +54,25 @@ def test_hotspot_settings_require_admin_auth_and_never_return_password(tmp_path:
         )
         assert enabled.status_code == 200
         payload = enabled.json()
-        assert payload["enabled"] is True
+        assert payload["enabled"] is False
         assert payload["ssid"] == "InkPi-Test"
         assert "wifi-secret" not in enabled.text
-        assert payload["operation"]["safe_details"]["password_supplied"] is True
-        assert helper.requests[-1].password == "wifi-secret"
+        assert payload["operation"]["status"] == "queued"
+
+        command = client.get("/api/network/commands/next").json()
+        assert command["action"] == "hotspot_configure"
+        assert command["payload"]["password"] == "wifi-secret"
+        completed = client.post(
+            f"/api/network/commands/{command['id']}/result",
+            json={
+                "status": "succeeded",
+                "message": "hotspot_configure completed",
+                "hotspot_active": True,
+                "connected_clients": 2,
+            },
+        )
+        assert completed.status_code == 204
+        assert client.get("/api/settings/network").json()["enabled"] is True
 
         disabled = client.put(
             "/api/settings/network/hotspot",
@@ -66,9 +80,9 @@ def test_hotspot_settings_require_admin_auth_and_never_return_password(tmp_path:
             json={"enabled": False, "ssid": "InkPi-Test"},
         )
         assert disabled.status_code == 200
-        assert disabled.json()["enabled"] is False
+        assert disabled.json()["operation"]["status"] == "queued"
 
-    assert b"wifi-secret" not in database_path.read_bytes()
+    assert database_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_hotspot_enable_validates_password_and_same_origin(tmp_path: Path) -> None:
@@ -123,12 +137,22 @@ def test_local_display_context_exposes_ephemeral_wifi_qr_only(tmp_path: Path) ->
             headers={"X-Admin-Token": "admin-secret"},
             json={"enabled": True, "ssid": "InkPi-Test", "password": "wifi-secret"},
         )
+        command = client.get("/api/network/commands/next").json()
+        client.post(
+            f"/api/network/commands/{command['id']}/result",
+            json={
+                "status": "succeeded",
+                "message": "done",
+                "hotspot_active": True,
+                "connected_clients": 0,
+            },
+        )
         enabled = client.get("/api/display/context").json()
         assert enabled["hotspot_enabled"] is True
         assert enabled["hotspot_ssid"] == "InkPi-Test"
         assert enabled["wifi_qr_payload"] == "WIFI:T:WPA;S:InkPi-Test;P:wifi-secret;;"
 
-    assert b"wifi-secret" not in database_path.read_bytes()
+    assert database_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_connected_hotspot_clients_counts_reachable_unique_neighbors(tmp_path: Path) -> None:
